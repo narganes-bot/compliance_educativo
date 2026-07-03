@@ -1,0 +1,25 @@
+# render.yaml — Blueprint de Render para el backend (opcional).
+# Puedes usar este archivo con "New > Blueprint" en Render, o crear el
+# servicio a mano siguiendo DEPLOY.md. Colócalo en la raíz del repositorio
+# del backend.
+services:
+  - type: web
+    name: compliance-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: STORE
+        value: pg
+      - key: TRUST_PROXY
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true        # Render genera una clave secreta segura
+      - key: DATABASE_URL
+        sync: false                # la pegas tú (la de Neon) en el panel
+      - key: RL_AUTH_MAX
+        value: "20"
+      - key: RL_PARTICIPANT_MAX
+        value: "60"

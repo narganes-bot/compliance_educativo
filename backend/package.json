@@ -1,0 +1,19 @@
+{
+  "name": "compliance-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend de la herramienta de prevención y compliance educativo (LOPIVI).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node test/flow.test.js",
+    "seed:pg": "node src/seed_pg.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "docx": "^9.7.1",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.5"
+  }
+}
