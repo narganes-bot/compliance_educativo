@@ -1,10 +1,10 @@
 /* ================================================================== *
- *  generate_personalized.js
+ *  docgen.js
  *  Genera un informe .docx personalizado de diagnóstico y modelo de
  *  prevención y compliance para un centro, a partir del JSON que
  *  exporta la app ({ center, interviews }).
  *
- *  Uso:  node generate_personalized.js <entrada.json> [salida.docx]
+ *  Uso:  node docgen.js <entrada.json> [salida.docx]
  * ================================================================== */
 
 const {
@@ -14,6 +14,7 @@ const {
   PageNumber, PageBreak,
 } = require("docx");
 const E = require("./engine/engine.js");
+const J = require("./justificaciones-riesgos.js");
 
 // Nombre de archivo seguro a partir del nombre del centro.
 function safeName(name) { return (name || "centro").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, ""); }
@@ -101,6 +102,12 @@ function note(text) {
   return new Paragraph({ spacing: { after: 120, before: 40 },
     border: { left: { style: BorderStyle.SINGLE, size: 18, color: "C00000", space: 8 } }, indent: { left: 120 },
     children: [new TextRun({ text: "⚠ ", bold: true, color: "C00000", size: 18 }), new TextRun({ text, italics: true, size: 18 })] });
+}
+// párrafo "Etiqueta: texto" con la etiqueta en negrita (para las justificaciones)
+function labeled(label, text, opts = {}) {
+  const { size = 20, after = 60 } = opts;
+  return new Paragraph({ spacing: { after, line: 264 },
+    children: [new TextRun({ text: label + ": ", bold: true, size, color: "2E4D7B" }), new TextRun({ text, size })] });
 }
 
 // celda coloreada de la matriz de calor
@@ -212,10 +219,26 @@ const sec3 = [
   ...(unratedList.length ? [p("Riesgos aún no evaluados (sin respuestas que cubran sus controles): " + unratedList.join(", ") + ".", { before: 80, size: 16, italics: true, color: "595959" })] : []),
 ];
 
-// 4. Plan 90 días
+// 4. Justificación de los riesgos (por qué cada riesgo es un riesgo real)
+const secJust = [
+  h1("4. Por qué estos riesgos importan"),
+  p("Para cada riesgo evaluado se explica por qué constituye un riesgo real: sus consecuencias, la obligación normativa que lo respalda y su impacto en el centro y en los menores.", { after: 120 }),
+  ...(ratedSorted.length ? ratedSorted.flatMap((r, i) => {
+    const j = J.RISK_JUSTIFICATIONS[r.code];
+    if (!j) return [];
+    return [
+      p(`${r.code} — ${r.title}  [${BAND[r.band].label}]`, { bold: true, size: 21, before: i ? 120 : 0, after: 40 }),
+      labeled("Consecuencias", j.consecuencias),
+      labeled("Obligación normativa", j.obligacion),
+      labeled("Impacto en el centro y en los menores", j.impacto),
+    ];
+  }) : [p("No hay riesgos evaluados que justificar con los datos actuales.", { italics: true })]),
+];
+
+// 5. Plan 90 días
 const planItems = critHigh.slice(0, 8);
 const sec4 = [
-  h1("4. Plan de actuación a 90 días"),
+  h1("5. Plan de actuación a 90 días"),
   p("Prioridades derivadas de los riesgos altos y críticos. Cada acción indica el control a reforzar, el responsable sugerido y su fundamento normativo.", { after: 100 }),
   ...(planItems.length ? planItems.flatMap((r, i) => [
     p(`${String(i + 1).padStart(2, "0")} · ${r.code} — ${r.title}  [${BAND[r.band].label}]`, { bold: true, after: 30, before: i ? 80 : 0, size: 21 }),
@@ -227,7 +250,7 @@ const sec4 = [
 // 5. Discrepancias
 const discrepancias = risks.flatMap((r) => r.discrepancies.map((d) => ({ code: r.code, ...d })));
 const sec5 = [
-  h1("5. Discrepancias entre niveles jerárquicos"),
+  h1("6. Discrepancias entre niveles jerárquicos"),
   p("Divergencias en las respuestas a un mismo control entre distintos roles. Suelen indicar que un control existe formalmente pero no ha llegado a todos los niveles; conviene verificarlo en campo.", { after: 100 }),
   ...(discrepancias.length ? discrepancias.slice(0, 10).map((d) =>
     bullet([{ text: d.code + " — ", bold: true }, `"${d.q}": ` + d.detail.map((x) => `${E.roleShort(x.role)} (${E.ANSWER_LABEL[x.raw]})`).join(" vs ")])
@@ -237,7 +260,7 @@ const sec5 = [
 // 6. Brechas de conocimiento
 const brechas = risks.filter((r) => r.nsCount > 0);
 const sec6 = [
-  h1("6. Brechas de conocimiento"),
+  h1("7. Brechas de conocimiento"),
   p("Riesgos con respuestas «No sé»: señalan falta de información o de difusión interna, no necesariamente un incumplimiento.", { after: 100 }),
   ...(brechas.length ? brechas.map((r) => bullet([{ text: r.code + " — ", bold: true }, `${r.title}: ${r.nsCount} respuesta(s) «No sé».`]))
     : [p("Sin respuestas «No sé» relevantes.", { italics: true })]),
@@ -250,7 +273,7 @@ const cobRows = E.LAW_LEVELS.map((lvl) => {
   return [lvl, items.map((l) => ({ bullet: `${l.covered ? "✓" : "○"}  ${l.label}` }))];
 }).filter(Boolean);
 const sec7 = [
-  h1("7. Cobertura normativa"),
+  h1("8. Cobertura normativa"),
   p("Niveles del marco legal respaldados por al menos una respuesta (✓) frente a los aún no explorados (○). Orienta sobre a qué perfiles conviene seguir entrevistando.", { after: 100 }),
   table(["Nivel del marco", "Normas y estado de cobertura"], [3200, 6438], cobRows, { zebra: true }),
   note("La normativa autonómica y los protocolos de cada Consejería de Educación son de aplicación directa y prevalente en muchas actuaciones; su denominación y vigencia varían por comunidad y deben verificarse."),
@@ -258,7 +281,7 @@ const sec7 = [
 
 // 8. Cierre
 const sec8 = [
-  h1("8. Continuidad y remisión al modelo integral"),
+  h1("9. Continuidad y remisión al modelo integral"),
   p("Este informe personalizado se integra como diagnóstico inicial del Modelo Integral de Prevención de Riesgos y Compliance del centro (apartados 1–12: alcance, marco legal multinivel, mapa de actores, matriz de riesgos, modelo ISO 37301, políticas y protocolos, controles, responsabilidades, plan de implantación e indicadores).", { after: 100 }),
   bullet("Validar el diagnóstico con la dirección, el Coordinador/a de Bienestar y el asesoramiento jurídico."),
   bullet("Ejecutar y hacer seguimiento del plan a 90 días, asignando responsables y evidencias."),
@@ -314,7 +337,7 @@ const doc = new Document({
   sections: [
     secP([...portada, ...disclaimer, br(), ...sec1, br(), ...sec2]),
     secL([...sec3]),
-    secP([...sec4, br(), ...sec5, br(), ...sec6, br(), ...sec7, br(), ...sec8]),
+    secP([...secJust, br(), ...sec4, br(), ...sec5, br(), ...sec6, br(), ...sec7, br(), ...sec8]),
   ],
 });
 
