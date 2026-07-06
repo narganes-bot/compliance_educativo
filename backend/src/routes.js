@@ -106,23 +106,6 @@ function buildRouter(store) {
     });
   }));
 
-  // Estado editable del modelo (ajustes manuales de P/I, notas). Retomar entre sesiones.
-  r.get("/campaigns/:id/state", requireAuth, asyncH(async (req, res) => {
-    const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
-    if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
-    const state = await store.getModelState(req.auth.consultancyId, campaign.id);
-    res.json({ state: state || { overrides: {} } });
-  }));
-
-  r.put("/campaigns/:id/state", requireAuth, asyncH(async (req, res) => {
-    const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
-    if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
-    const state = sanitizeModelState(req.body);
-    const saved = await store.saveModelState(req.auth.consultancyId, campaign.id, state);
-    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "save_model_state", entity: "campaign", entity_id: campaign.id, ip: ipOf(req) });
-    res.json({ state: saved });
-  }));
-
   // Modelo calculado (motor en servidor)
   r.get("/campaigns/:id/model", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
@@ -253,6 +236,30 @@ function buildRouter(store) {
       center: room.center ? { id: room.center.id, name: room.center.name, ownership: room.center.ownership, stages: room.center.stages, num_students: room.center.num_students } : null,
       interviews: room.interviews,
     });
+  }));
+
+  // Autenticado: leer los ajustes del modelo (P/I manuales) por código
+  r.get("/rooms/:code/state", requireAuth, asyncH(async (req, res) => {
+    const state = await store.getModelStateByCode(req.auth.consultancyId, req.params.code);
+    if (state === undefined) fail(404, "not_found", "Modelo no encontrado.");
+    res.json({ state: state || { overrides: {} } });
+  }));
+
+  // Autenticado: guardar los ajustes del modelo (P/I manuales) por código
+  r.put("/rooms/:code/state", requireAuth, asyncH(async (req, res) => {
+    const clean = sanitizeModelState(req.body);
+    const saved = await store.saveModelStateByCode(req.auth.consultancyId, req.params.code, clean);
+    if (saved === undefined) fail(404, "not_found", "Modelo no encontrado.");
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "save_model_state", entity: "campaign", ip: ipOf(req) });
+    res.json({ state: saved });
+  }));
+
+  // Autenticado: eliminar el modelo completo (campaña + entrevistas en cascada)
+  r.delete("/rooms/:code", requireAuth, asyncH(async (req, res) => {
+    const done = await store.deleteCampaignByCode(req.auth.consultancyId, req.params.code);
+    if (!done) fail(404, "not_found", "Modelo no encontrado.");
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "delete_campaign", entity: "campaign", entity_id: done.campaign_id, ip: ipOf(req) });
+    res.json({ ok: true });
   }));
 
   // Autenticado: vaciar entrevistas de la sala por código
