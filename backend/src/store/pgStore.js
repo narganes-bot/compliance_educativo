@@ -64,11 +64,20 @@ function createPgStore(connectionString) {
     async listCampaigns(cid) {
       return withTenant(cid, async (c) => (await c.query(
         `SELECT cp.id, cp.code, cp.status, cp.created_at, cp.retention_until,
-                ct.name AS center_name, ct.ownership,
+                ct.name AS center_name, ct.ownership, ct.stages, ct.num_students,
                 (SELECT count(*) FROM interview i WHERE i.campaign_id = cp.id) AS interview_count
            FROM campaign cp JOIN center ct ON ct.id = cp.center_id
           WHERE cp.consultancy_id = $1
           ORDER BY cp.created_at DESC`, [cid])).rows);
+    },
+    async deleteCampaignByCode(cid, code) {
+      return withTenant(cid, async (c) => {
+        const cp = (await c.query("SELECT id FROM campaign WHERE code=$1 AND consultancy_id=$2", [code, cid])).rows[0];
+        if (!cp) return null;
+        // El borrado de la campaña arrastra en cascada entrevistas y respuestas (ver schema.sql).
+        await c.query("DELETE FROM campaign WHERE id=$1 AND consultancy_id=$2", [cp.id, cid]);
+        return { campaign_id: cp.id };
+      });
     },
     async getModelState(cid, id) {
       return withTenant(cid, async (c) => {
@@ -82,6 +91,21 @@ function createPgStore(connectionString) {
           "UPDATE campaign SET model_state=$3::jsonb WHERE id=$1 AND consultancy_id=$2 RETURNING model_state",
           [id, cid, JSON.stringify(state)]);
         return rows[0] ? rows[0].model_state : null;
+      });
+    },
+    // Variantes por código de sala (las que usa la app, que trabaja por código).
+    async getModelStateByCode(cid, code) {
+      return withTenant(cid, async (c) => {
+        const { rows } = await c.query("SELECT model_state FROM campaign WHERE code=$1 AND consultancy_id=$2", [code, cid]);
+        return rows.length ? (rows[0].model_state || null) : undefined; // undefined = campaña inexistente
+      });
+    },
+    async saveModelStateByCode(cid, code, state) {
+      return withTenant(cid, async (c) => {
+        const { rows } = await c.query(
+          "UPDATE campaign SET model_state=$3::jsonb WHERE code=$1 AND consultancy_id=$2 RETURNING model_state",
+          [code, cid, JSON.stringify(state)]);
+        return rows.length ? rows[0].model_state : undefined;
       });
     },
 

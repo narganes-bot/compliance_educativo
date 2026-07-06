@@ -53,11 +53,30 @@ function createMemoryStore() {
         .map((c) => {
           const center = centers.get(c.center_id) || {};
           const count = [...interviews.values()].filter((i) => i.campaign_id === c.id).length;
-          return { id: c.id, code: c.code, status: c.status, created_at: c.created_at, retention_until: c.retention_until, center_name: center.name || null, ownership: center.ownership || null, interview_count: count };
+          return { id: c.id, code: c.code, status: c.status, created_at: c.created_at, retention_until: c.retention_until, center_name: center.name || null, ownership: center.ownership || null, stages: center.stages || null, num_students: center.num_students != null ? center.num_students : null, interview_count: count };
         });
+    },
+    async deleteCampaignByCode(consultancy_id, code) {
+      const campaign = [...campaigns.values()].find((c) => c.code === code && c.consultancy_id === consultancy_id);
+      if (!campaign) return null;
+      campaigns.delete(campaign.id);
+      for (const [id, i] of interviews) if (i.campaign_id === campaign.id) interviews.delete(id);
+      for (const [id, l] of links) if (l.campaign_id === campaign.id) links.delete(id);
+      return { campaign_id: campaign.id };
     },
     async getModelState(consultancy_id, id) { const c = await this.getCampaign(consultancy_id, id); return c ? (c.model_state || null) : null; },
     async saveModelState(consultancy_id, id, state) { const c = await this.getCampaign(consultancy_id, id); if (!c) return null; c.model_state = state; return c.model_state; },
+    // Variantes por código de sala (las que usa la app).
+    async getModelStateByCode(consultancy_id, code) {
+      const c = [...campaigns.values()].find((x) => x.code === code && x.consultancy_id === consultancy_id);
+      if (!c) return undefined; // undefined = campaña inexistente
+      return c.model_state || null;
+    },
+    async saveModelStateByCode(consultancy_id, code, state) {
+      const c = [...campaigns.values()].find((x) => x.code === code && x.consultancy_id === consultancy_id);
+      if (!c) return undefined;
+      c.model_state = state; return c.model_state;
+    },
 
     // ---- enlaces de participante ----
     async createLink(consultancy_id, campaign_id, d) {
