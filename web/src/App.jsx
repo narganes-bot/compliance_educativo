@@ -276,6 +276,22 @@ function makeApiStore(base) {
       const r = await authFetch(`/rooms/${code}/state`, { method: "PUT", body: JSON.stringify(state) });
       if (!r.ok) throw new Error("No se pudieron guardar los ajustes.");
     },
+    // Descarga el informe .docx completo generado en el servidor (docgen.js).
+    async downloadDocument(code, centerName) {
+      const r = await authFetch(`/rooms/${code}/document`, { method: "POST" });
+      if (!r.ok) {
+        let msg = "No se pudo generar el informe.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Informe_${(centerName || "centro").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "")}.docx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    },
   };
 }
 
@@ -396,6 +412,7 @@ export default function App() {
             <Scale size={19} color="#fff" />
           </button>
           <div style={{ lineHeight: 1.15, flex: 1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 1 }}>Forentia360</div>
             <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>Prevención y Compliance educativo</div>
             <div style={{ fontSize: 12, color: C.slate, fontFamily: mono }}>LOPIVI · ISO 37301:2021 · entrevistas → matriz → modelo</div>
           </div>
@@ -829,13 +846,19 @@ function Dashboard({ code, center, onBack }) {
         <Card><div style={{ display: "flex", gap: 10, alignItems: "center", color: C.slate, fontSize: 13.5 }}><Loader2 size={16} className="spin" /> Cargando entrevistas…</div></Card>
       ) : !interviews.length ? (
         <Card><Empty text="Aún no hay entrevistas. Comparte el código para que el equipo responda, o pulsa «Registrar una entrevista» para anotarlas tú. El panel se actualizará solo." /></Card>
-      ) : <Results center={center} interviews={interviews} overrides={overrides} editable onOverride={applyOverride} onResetRisk={resetRisk} />}
+      ) : <Results center={center} interviews={interviews} overrides={overrides} editable onOverride={applyOverride} onResetRisk={resetRisk} serverDoc={store.mode === "api" ? () => store.downloadDocument(code, center && center.name) : null} />}
     </div>
   );
 }
 
 /* ------------------------- Results (modelo) ------------------------- */
-function Results({ center, interviews, overrides = {}, editable = false, onOverride = () => { }, onResetRisk = () => { } }) {
+function Results({ center, interviews, overrides = {}, editable = false, onOverride = () => { }, onResetRisk = () => { }, serverDoc = null }) {
+  const [dl, setDl] = useState(false);
+  const doDownload = async () => {
+    if (!serverDoc) { downloadWord(center, interviews, overrides); return; }
+    setDl(true);
+    try { await serverDoc(); } catch (e) { alert(e.message || "No se pudo generar el informe."); } finally { setDl(false); }
+  };
   const risks = computeRisks(interviews, overrides);
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
@@ -852,8 +875,7 @@ function Results({ center, interviews, overrides = {}, editable = false, onOverr
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <H sub={`Modelo generado a partir de ${interviews.length} entrevista(s). Revisable y validable antes de su aprobación.`}>Modelo de prevención — borrador</H>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <PrimaryBtn onClick={() => downloadWord(center, interviews, overrides)}><FileDown size={16} /> Descargar Word</PrimaryBtn>
-            <PrimaryBtn onClick={() => exportJSON(center, interviews)} ghost><Download size={16} /> JSON</PrimaryBtn>
+            <PrimaryBtn onClick={doDownload} disabled={dl}>{dl ? <Loader2 size={16} className="spin" /> : <FileDown size={16} />} {dl ? "Generando…" : "Descargar Word"}</PrimaryBtn>
             <PrimaryBtn onClick={() => window.print()} ghost><FileText size={16} /> Imprimir</PrimaryBtn>
           </div>
         </div>
