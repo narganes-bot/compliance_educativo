@@ -412,9 +412,9 @@ export default function App() {
             <Scale size={19} color="#fff" />
           </button>
           <div style={{ lineHeight: 1.15, flex: 1 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 1 }}>Forentia360</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 1 }}>Forentia 360</div>
             <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>Prevención y Compliance educativo</div>
-            <div style={{ fontSize: 12, color: C.slate, fontFamily: mono }}>LOPIVI · ISO 37301:2021 · entrevistas → matriz → modelo</div>
+            <div style={{ fontSize: 12, color: C.slate, fontFamily: mono }}>LOPIVI (LO 8/2021) · LOPJM (LO 1/1996) · LOE (LO 2/2006) · ISO 37301:2021</div>
           </div>
           {store.mode === "local" && !store.persistent && <span title="Sin almacenamiento persistente en este entorno" style={{ fontSize: 11, color: C.med, fontFamily: mono, display: "inline-flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> modo local</span>}
           {canModels && (
