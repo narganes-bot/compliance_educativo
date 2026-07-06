@@ -11,6 +11,26 @@ const { config } = require("./config");
 // Mapea el centro almacenado al formato que consume el motor.
 const toEngineCenter = (c) => ({ name: c.name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "", ccaa: c.ccaa || "" });
 
+// Sanea el estado del modelo antes de guardarlo: solo admite sobrescrituras de
+// P e I (enteros 1..5) por riesgo (Rxx) y un campo de notas opcional. Evita
+// almacenar datos arbitrarios en la columna JSONB.
+function sanitizeModelState(body) {
+  const src = (body && typeof body === "object") ? body : {};
+  const out = { overrides: {}, updated_at: new Date().toISOString() };
+  const ov = (src.overrides && typeof src.overrides === "object") ? src.overrides : {};
+  for (const code of Object.keys(ov)) {
+    if (!/^R\d{2}$/.test(code)) continue;
+    const e = ov[code] || {};
+    const clean = {};
+    const p = Number(e.prob), im = Number(e.impact);
+    if (Number.isInteger(p) && p >= 1 && p <= 5) clean.prob = p;
+    if (Number.isInteger(im) && im >= 1 && im <= 5) clean.impact = im;
+    if (Object.keys(clean).length) out.overrides[code] = clean;
+  }
+  if (typeof src.notes === "string") out.notes = src.notes.slice(0, 5000);
+  return out;
+}
+
 function buildRouter(store) {
   const r = express.Router();
   const ipOf = (req) => req.ip || (req.socket && req.socket.remoteAddress) || null;
@@ -57,6 +77,12 @@ function buildRouter(store) {
     res.json({ center });
   }));
 
+  /* ----------------------- modelos guardados ------------------------- */
+  // Lista de modelos (campañas) de la consultoría, para la pantalla "Mis modelos".
+  r.get("/campaigns", requireAuth, asyncH(async (req, res) => {
+    res.json({ campaigns: await store.listCampaigns(req.auth.consultancyId) });
+  }));
+
   /* ---------------------------- campañas ----------------------------- */
   r.post("/centers/:id/campaigns", requireAuth, asyncH(async (req, res) => {
     const center = await store.getCenter(req.auth.consultancyId, req.params.id);
@@ -80,13 +106,32 @@ function buildRouter(store) {
     });
   }));
 
+  // Estado editable del modelo (ajustes manuales de P/I, notas). Retomar entre sesiones.
+  r.get("/campaigns/:id/state", requireAuth, asyncH(async (req, res) => {
+    const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
+    if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
+    const state = await store.getModelState(req.auth.consultancyId, campaign.id);
+    res.json({ state: state || { overrides: {} } });
+  }));
+
+  r.put("/campaigns/:id/state", requireAuth, asyncH(async (req, res) => {
+    const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
+    if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
+    const state = sanitizeModelState(req.body);
+    const saved = await store.saveModelState(req.auth.consultancyId, campaign.id, state);
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "save_model_state", entity: "campaign", entity_id: campaign.id, ip: ipOf(req) });
+    res.json({ state: saved });
+  }));
+
   // Modelo calculado (motor en servidor)
   r.get("/campaigns/:id/model", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
     if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
     const center = await store.getCenter(req.auth.consultancyId, campaign.center_id);
     const interviews = await store.listInterviews(req.auth.consultancyId, campaign.id);
-    const analysis = IO.analyze({ center: toEngineCenter(center), interviews: interviews.map((i) => ({ role: i.role, answers: i.answers })) });
+    const state = await store.getModelState(req.auth.consultancyId, campaign.id);
+    const overrides = (state && state.overrides) || {};
+    const analysis = IO.analyze({ center: toEngineCenter(center), interviews: interviews.map((i) => ({ role: i.role, answers: i.answers })), overrides });
     res.json(analysis);
   }));
 
@@ -106,7 +151,9 @@ function buildRouter(store) {
     const center = await store.getCenter(req.auth.consultancyId, campaign.center_id);
     const interviews = await store.listInterviews(req.auth.consultancyId, campaign.id);
     if (!interviews.length) fail(409, "no_data", "La campaña no tiene entrevistas.");
-    const buffer = await buildDocxBuffer(toEngineCenter(center), interviews.map((i) => ({ role: i.role, answers: i.answers })));
+    const state = await store.getModelState(req.auth.consultancyId, campaign.id);
+    const overrides = (state && state.overrides) || {};
+    const buffer = await buildDocxBuffer(toEngineCenter(center), interviews.map((i) => ({ role: i.role, answers: i.answers })), overrides);
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "generate_document", entity: "campaign", entity_id: campaign.id, ip: ipOf(req) });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(center.name)}.docx"`);
