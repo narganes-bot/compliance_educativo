@@ -119,8 +119,10 @@ const ANSWER_LABEL = { si: "Sí", parcial: "Parcial", no: "No", ns: "No sé" };
 const ANSWERS = [{ v: "si", label: "Sí" }, { v: "parcial", label: "Parcial" }, { v: "no", label: "No" }, { v: "ns", label: "No sé" }];
 const bandOf = (level) => (level <= 4 ? "low" : level <= 10 ? "med" : level <= 15 ? "high" : "crit");
 const BAND_META = { low: { label: "Bajo", color: C.low }, med: { label: "Medio", color: C.med }, high: { label: "Alto", color: C.high }, crit: { label: "Crítico", color: C.crit } };
+const validPI = (v) => (Number.isInteger(v) && v >= 1 && v <= 5 ? v : null);
 
-function computeRisks(interviews) {
+function computeRisks(interviews, overrides = {}) {
+  overrides = overrides && typeof overrides === "object" ? overrides : {};
   return RISKS.map((risk) => {
     const qs = QUESTIONS.filter((q) => q.risks.includes(risk.code));
     const answers = []; const discrepancies = [];
@@ -129,13 +131,23 @@ function computeRisks(interviews) {
       interviews.forEach((iv) => { const a = iv.answers[q.id]; if (a) { answers.push(a); perQ.push({ role: iv.role, val: ANSWER_VALUE[a], raw: a }); } });
       if (perQ.length >= 2) { const vals = perQ.map((x) => x.val); if (Math.max(...vals) - Math.min(...vals) >= 0.5) discrepancies.push({ q: q.q, detail: perQ }); }
     });
-    if (!answers.length) return { ...risk, status: "unrated", prob: null, level: null, band: null, nsCount: 0, missing: [], discrepancies };
-    const control = answers.reduce((s, a) => s + ANSWER_VALUE[a], 0) / answers.length;
-    const prob = Math.min(5, Math.max(1, Math.round(5 - control * 4)));
-    const level = prob * risk.impact;
     const nsCount = answers.filter((a) => a === "ns").length;
     const missing = qs.filter((q) => interviews.some((iv) => ["no", "parcial", "ns"].includes(iv.answers[q.id]))).map((q) => q.q);
-    return { ...risk, status: "rated", prob, level, band: bandOf(level), nsCount, missing, discrepancies };
+    let probSuggested = null;
+    if (answers.length) { const control = answers.reduce((s, a) => s + ANSWER_VALUE[a], 0) / answers.length; probSuggested = Math.min(5, Math.max(1, Math.round(5 - control * 4))); }
+    const impactSuggested = risk.impact;
+    const ov = overrides[risk.code] || null;
+    const ovProb = ov ? validPI(ov.prob) : null;
+    const ovImpact = ov ? validPI(ov.impact) : null;
+    const overriddenFields = [];
+    if (ovProb != null) overriddenFields.push("prob");
+    if (ovImpact != null) overriddenFields.push("impact");
+    const overridden = overriddenFields.length > 0;
+    const prob = ovProb != null ? ovProb : probSuggested;
+    const impact = ovImpact != null ? ovImpact : impactSuggested;
+    const common = { ...risk, impact, prob, probSuggested, impactSuggested, overridden, overriddenFields, nsCount, missing, discrepancies };
+    if (prob != null && impact != null) { const level = prob * impact; return { ...common, status: "rated", level, band: bandOf(level) }; }
+    return { ...common, status: "unrated", level: null, band: null };
   });
 }
 function computeCoverage(interviews) {
@@ -183,6 +195,20 @@ const localStore = {
   async submitInterview(code, iv) { await KV.set(respPrefix(code) + iv.id, { ...iv, submittedAt: new Date().toISOString() }); },
   async listInterviews(code) { const keys = await KV.list(respPrefix(code)); const rows = await Promise.all(keys.map((k) => KV.get(k))); return rows.filter(Boolean); },
   async resetInterviews(code) { const keys = await KV.list(respPrefix(code)); await Promise.all(keys.map((k) => KV.del(k))); },
+  async listModels() {
+    const keys = await KV.list("c:");
+    const metaKeys = keys.filter((k) => k.endsWith(":meta"));
+    const rows = await Promise.all(metaKeys.map(async (k) => {
+      const room = await KV.get(k); if (!room) return null;
+      const ivs = await this.listInterviews(room.code);
+      return { code: room.code, status: "open", createdAt: room.createdAt, interviews: ivs.length,
+        center: { name: room.name, tipo: room.tipo, etapas: room.etapas || "", alumnos: room.alumnos || "" } };
+    }));
+    return rows.filter(Boolean).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  },
+  async deleteModel(code) { await this.resetInterviews(code); await KV.del(metaKey(code)); },
+  async getModelState(code) { return (await KV.get(`c:${code}:state`)) || { overrides: {} }; },
+  async saveModelState(code, state) { await KV.set(`c:${code}:state`, state); },
 };
 
 // Modo SERVIDOR: habla con la API del backend.
@@ -227,6 +253,29 @@ function makeApiStore(base) {
       return (j.interviews || []).map((i) => ({ id: i.id, role: i.role, alias: i.alias, answers: i.answers }));
     },
     async resetInterviews(code) { await authFetch(`/rooms/${code}/responses`, { method: "DELETE" }); },
+    async listModels() {
+      const r = await authFetch("/campaigns");
+      if (!r.ok) return [];
+      const j = await r.json();
+      return (j.campaigns || []).map((c) => ({
+        code: c.code, status: c.status, createdAt: c.created_at, interviews: Number(c.interview_count) || 0,
+        center: { name: c.center_name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "" },
+      }));
+    },
+    async deleteModel(code) {
+      const r = await authFetch(`/rooms/${code}`, { method: "DELETE" });
+      if (!r.ok) throw new Error("No se pudo eliminar el modelo.");
+    },
+    async getModelState(code) {
+      const r = await authFetch(`/rooms/${code}/state`);
+      if (!r.ok) return { overrides: {} };
+      const j = await r.json();
+      return j.state || { overrides: {} };
+    },
+    async saveModelState(code, state) {
+      const r = await authFetch(`/rooms/${code}/state`, { method: "PUT", body: JSON.stringify(state) });
+      if (!r.ok) throw new Error("No se pudieron guardar los ajustes.");
+    },
   };
 }
 
@@ -250,10 +299,12 @@ const tipoTxt = (t) => ({ publica: "pública", concertada: "concertada", privada
 const WORD_BAND = { low: "#EAF3EE", med: "#F7EED9", high: "#F7E7DB", crit: "#F4DEE2" };
 const WORD_BANDTX = { low: "#2E6B4F", med: "#8A6414", high: "#9A4A22", crit: "#8C2C3A" };
 
-function buildWordHTML(center, interviews) {
-  const risks = computeRisks(interviews);
+function buildWordHTML(center, interviews, overrides = {}) {
+  const risks = computeRisks(interviews, overrides);
   const coverage = computeCoverage(interviews);
   const rated = risks.filter((r) => r.status === "rated").sort((a, b) => b.level - a.level);
+  const anyOverride = rated.some((r) => r.overridden);
+  const mk = (r, f) => (r.overriddenFields && r.overriddenFields.includes(f) ? " *" : "");
   const nBy = (b) => rated.filter((r) => r.band === b).length;
   const critHigh = rated.filter((r) => ["crit", "high"].includes(r.band));
   const fecha = new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
@@ -264,8 +315,8 @@ function buildWordHTML(center, interviews) {
   const matrizRows = rated.map((r) => `<tr>
     <td style="border:1px solid #B8C2CC;padding:5px;font-family:Consolas;font-weight:bold;color:#1F3864">${r.code}</td>
     <td style="border:1px solid #B8C2CC;padding:5px">${esc(r.title)}</td>
-    <td style="border:1px solid #B8C2CC;padding:5px;text-align:center">${r.prob}</td>
-    <td style="border:1px solid #B8C2CC;padding:5px;text-align:center">${r.impact}</td>
+    <td style="border:1px solid #B8C2CC;padding:5px;text-align:center">${r.prob}${mk(r, "prob")}</td>
+    <td style="border:1px solid #B8C2CC;padding:5px;text-align:center">${r.impact}${mk(r, "impact")}</td>
     <td style="border:1px solid #B8C2CC;padding:5px;text-align:center;font-weight:bold">${r.level}</td>
     <td style="border:1px solid #B8C2CC;padding:5px;background:${WORD_BAND[r.band]};color:${WORD_BANDTX[r.band]};font-weight:bold">${BAND_META[r.band].label}</td>
     <td style="border:1px solid #B8C2CC;padding:5px;font-family:Consolas;font-size:10px">${r.laws.map(lawShort).join(", ") || "—"}</td>
@@ -297,6 +348,7 @@ function buildWordHTML(center, interviews) {
       <th style="border:1px solid #1F3864;padding:5px;text-align:left">Banda</th><th style="border:1px solid #1F3864;padding:5px;text-align:left">Fundamento</th><th style="border:1px solid #1F3864;padding:5px;text-align:left">Responsable</th></tr>
     ${matrizRows || '<tr><td colspan="8" style="border:1px solid #B8C2CC;padding:5px">Sin riesgos evaluados.</td></tr>'}
   </table>
+  ${anyOverride ? '<p style="margin:6px 0 0;color:#595959;font-style:italic;font-size:11px">* Valor de Probabilidad (P) o Impacto (I) ajustado por el consultor a criterio experto. El valor sugerido por la herramienta se conserva.</p>' : ''}
 
   <h2 style="color:#1F3864;font-size:16px;border-bottom:2px solid #1F3864;padding-bottom:3px;margin-top:16px">3. Plan de actuación a 90 días</h2>
   ${planRows}
@@ -309,8 +361,8 @@ function buildWordHTML(center, interviews) {
   <p style="margin-top:16px;padding:8px;border-left:4px solid #C00000;color:#6B5324;font-style:italic">Documento de trabajo. Los resultados son orientativos y no constituyen asesoramiento jurídico ni sustituyen la validación profesional ni la supervisión de la Administración educativa. El marco autonómico debe verificarse en cada comunidad.</p>
   </body></html>`;
 }
-function downloadWord(center, interviews) {
-  const html = buildWordHTML(center, interviews);
+function downloadWord(center, interviews, overrides) {
+  const html = buildWordHTML(center, interviews, overrides);
   const blob = new Blob(["\ufeff", html], { type: "application/msword" });
   const url = URL.createObjectURL(blob); const a = document.createElement("a");
   a.href = url; a.download = `Informe_${(center.name || "centro").replace(/\W+/g, "_")}.doc`; a.click(); URL.revokeObjectURL(url);
@@ -327,6 +379,8 @@ export default function App() {
   const [code, setCode] = useState("");
   const [center, setCenter] = useState(null);
   const [authed, setAuthed] = useState(store.mode !== "api");
+  const logout = () => { try { store.setToken && store.setToken(null); } catch { } setAuthed(false); setView("home"); };
+  const canModels = (store.mode === "api" && authed) || (store.mode === "local" && store.persistent);
 
   return (
     <div style={{ fontFamily: sans, background: C.bg, color: C.ink, minHeight: "100vh" }}>
@@ -346,6 +400,16 @@ export default function App() {
             <div style={{ fontSize: 12, color: C.slate, fontFamily: mono }}>LOPIVI · ISO 37301:2021 · entrevistas → matriz → modelo</div>
           </div>
           {store.mode === "local" && !store.persistent && <span title="Sin almacenamiento persistente en este entorno" style={{ fontSize: 11, color: C.med, fontFamily: mono, display: "inline-flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> modo local</span>}
+          {canModels && (
+            <button onClick={() => setView("models")} title="Mis modelos" style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "6px 12px", cursor: "pointer", color: C.navy, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>
+              <Grid3x3 size={14} /> Mis modelos
+            </button>
+          )}
+          {store.mode === "api" && authed && (
+            <button onClick={logout} title="Cerrar sesión" style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "6px 12px", cursor: "pointer", color: C.navy, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>
+              <LogIn size={14} style={{ transform: "scaleX(-1)" }} /> Cerrar sesión
+            </button>
+          )}
         </div>
       </header>
 
@@ -358,6 +422,8 @@ export default function App() {
         {view === "participant" && <Participant code={code} center={center} onBack={() => setView("home")} />}
         {view === "dashboard" && <Dashboard code={code} center={center} onBack={() => setView("home")} />}
         {view === "quick" && <Quick onBack={() => setView("home")} />}
+        {view === "demo" && <Demo onBack={() => setView("home")} />}
+        {view === "models" && <Models onOpen={(cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); }} onBack={() => setView("home")} />}
       </div>
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
@@ -385,6 +451,9 @@ function Home({ go }) {
         <ChoiceCard icon={Zap} title="Diagnóstico rápido"
           desc="Para trabajar en solitario. Añade tú mismo las entrevistas en una sesión y obtén el modelo al momento."
           cta="Empezar" onClick={() => go("quick")} />
+        <ChoiceCard icon={FileText} title="Ver demostración"
+          desc="Un centro ficticio ya rellenado para ver el modelo completo al instante. Ideal para presentar la herramienta."
+          cta="Ver ejemplo" onClick={() => go("demo")} />
       </div>
     </div>
   );
@@ -611,6 +680,62 @@ function Quick({ onBack }) {
   );
 }
 
+/* ------------------------------ Mis modelos ------------------------------ */
+function Models({ onOpen, onBack }) {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { setRows(null); try { setRows(await store.listModels()); } catch { setRows([]); } }, []);
+  useEffect(() => { load(); }, [load]);
+  const del = async (m) => {
+    if (!window.confirm(`¿Eliminar el modelo de "${m.center.name || m.code}"? Se borrarán también sus entrevistas. Esta acción no se puede deshacer.`)) return;
+    setBusy(true);
+    try { await store.deleteModel(m.code); await load(); } catch (e) { alert(e.message || "No se pudo eliminar el modelo."); } finally { setBusy(false); }
+  };
+  return (
+    <div><BackLink onClick={onBack} />
+      <Card>
+        <H sub="Tus centros y modelos guardados. Ábrelos para seguir trabajando o elimínalos.">Mis modelos</H>
+        {rows === null ? (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", color: C.slate, fontSize: 13.5 }}><Loader2 size={16} className="spin" /> Cargando…</div>
+        ) : !rows.length ? (
+          <Empty text="Aún no tienes modelos guardados. Crea una sala del centro para empezar." />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {rows.map((m) => (
+              <div key={m.code} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 700 }}>{m.center.name || "(centro sin nombre)"}</div>
+                  <div style={{ fontSize: 12.5, color: C.slate }}>Titularidad {tipoTxt(m.center.tipo)}{m.center.etapas ? ` · ${m.center.etapas}` : ""} · {m.interviews} entrevista(s)</div>
+                </div>
+                <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700, letterSpacing: "0.1em", color: C.navy, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 7, padding: "4px 9px" }}>{m.code}</span>
+                <PrimaryBtn onClick={() => onOpen(m.code, m.center)}><ChevronRight size={16} /> Abrir</PrimaryBtn>
+                <button onClick={() => del(m)} disabled={busy} title="Eliminar modelo" style={{ border: `1px solid ${hexA(C.crit, 0.4)}`, background: "#fff", color: C.crit, borderRadius: 9, padding: "9px 12px", cursor: busy ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>✕ Eliminar</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* ------------------------------ Demo (ejemplo ficticio) ------------------------------ */
+function Demo({ onBack }) {
+  const [interviews] = useState(SEED);
+  const center = { name: "Colegio Ejemplo San Martín (ficticio)", tipo: "concertada", etapas: "Infantil, Primaria, ESO", alumnos: "620" };
+  return (
+    <div><BackLink onClick={onBack} />
+      <Card style={{ marginBottom: 16, borderColor: C.navy }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <Info size={18} color={C.navy} style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 13.5, color: C.slate }}>Datos de <b>demostración</b> de un centro ficticio, para presentar la herramienta. No corresponden a ningún centro real.</span>
+        </div>
+      </Card>
+      <Results center={center} interviews={interviews} />
+    </div>
+  );
+}
+
 /* ---------------------------- Dashboard ---------------------------- */
 function Dashboard({ code, center, onBack }) {
   const [interviews, setInterviews] = useState([]);
@@ -618,6 +743,7 @@ function Dashboard({ code, center, onBack }) {
   const [auto, setAuto] = useState(true);
   const [copied, setCopied] = useState(false);
   const [interviewing, setInterviewing] = useState(false);
+  const [overrides, setOverrides] = useState({});
   const timer = useRef(null);
   const load = useCallback(async () => {
     try { setInterviews(await store.listInterviews(code)); } catch { /* mantener lo anterior */ }
@@ -625,9 +751,22 @@ function Dashboard({ code, center, onBack }) {
   }, [code]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (!auto) { if (timer.current) clearInterval(timer.current); return; } timer.current = setInterval(load, 9000); return () => timer.current && clearInterval(timer.current); }, [auto, load]);
+  // Carga los ajustes manuales guardados (P/I) al abrir el modelo.
+  useEffect(() => { let ok = true; (async () => { try { const st = await store.getModelState(code); if (ok) setOverrides((st && st.overrides) || {}); } catch { } })(); return () => { ok = false; }; }, [code]);
+
+  const persistOverrides = (next) => { setOverrides(next); store.saveModelState(code, { overrides: next }).catch(() => { }); };
+  const applyOverride = (rcode, field, value) => {
+    const cur = overrides[rcode] || {};
+    const nextRisk = { ...cur };
+    if (value == null) delete nextRisk[field]; else nextRisk[field] = value;
+    const next = { ...overrides };
+    if (Object.keys(nextRisk).length) next[rcode] = nextRisk; else delete next[rcode];
+    persistOverrides(next);
+  };
+  const resetRisk = (rcode) => { const next = { ...overrides }; delete next[rcode]; persistOverrides(next); };
 
   const byRole = {}; interviews.forEach((iv) => { byRole[iv.role] = (byRole[iv.role] || 0) + 1; });
-  const risks = computeRisks(interviews);
+  const risks = computeRisks(interviews, overrides);
   const critHigh = risks.filter((r) => ["crit", "high"].includes(r.band)).sort((a, b) => b.level - a.level);
   const copy = async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { } };
   const reset = async () => { if (!window.confirm("¿Vaciar todas las entrevistas de esta sala? No se puede deshacer.")) return; await store.resetInterviews(code); load(); };
@@ -690,16 +829,17 @@ function Dashboard({ code, center, onBack }) {
         <Card><div style={{ display: "flex", gap: 10, alignItems: "center", color: C.slate, fontSize: 13.5 }}><Loader2 size={16} className="spin" /> Cargando entrevistas…</div></Card>
       ) : !interviews.length ? (
         <Card><Empty text="Aún no hay entrevistas. Comparte el código para que el equipo responda, o pulsa «Registrar una entrevista» para anotarlas tú. El panel se actualizará solo." /></Card>
-      ) : <Results center={center} interviews={interviews} />}
+      ) : <Results center={center} interviews={interviews} overrides={overrides} editable onOverride={applyOverride} onResetRisk={resetRisk} />}
     </div>
   );
 }
 
 /* ------------------------- Results (modelo) ------------------------- */
-function Results({ center, interviews }) {
-  const risks = computeRisks(interviews);
+function Results({ center, interviews, overrides = {}, editable = false, onOverride = () => { }, onResetRisk = () => { } }) {
+  const risks = computeRisks(interviews, overrides);
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
+  const tableRisks = editable ? [...rated].sort((a, b) => a.code.localeCompare(b.code)) : ratedSorted;
   const critHigh = ratedSorted.filter((r) => ["crit", "high"].includes(r.band));
   const coverage = computeCoverage(interviews);
   const discrep = risks.flatMap((r) => r.discrepancies.map((d) => ({ code: r.code, ...d })));
@@ -712,7 +852,7 @@ function Results({ center, interviews }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
           <H sub={`Modelo generado a partir de ${interviews.length} entrevista(s). Revisable y validable antes de su aprobación.`}>Modelo de prevención — borrador</H>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <PrimaryBtn onClick={() => downloadWord(center, interviews)}><FileDown size={16} /> Descargar Word</PrimaryBtn>
+            <PrimaryBtn onClick={() => downloadWord(center, interviews, overrides)}><FileDown size={16} /> Descargar Word</PrimaryBtn>
             <PrimaryBtn onClick={() => exportJSON(center, interviews)} ghost><Download size={16} /> JSON</PrimaryBtn>
             <PrimaryBtn onClick={() => window.print()} ghost><FileText size={16} /> Imprimir</PrimaryBtn>
           </div>
@@ -730,17 +870,28 @@ function Results({ center, interviews }) {
             <div style={{ flex: "1 1 260px", overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
                 <thead><tr style={{ textAlign: "left", color: C.slate, fontSize: 11, textTransform: "uppercase" }}>
-                  {["Cód.", "Riesgo", "Niv.", "Banda", "Responsable"].map((h) => <th key={h} style={{ padding: "6px 8px", borderBottom: `2px solid ${C.line}`, fontFamily: mono }}>{h}</th>)}
+                  {["Cód.", "Riesgo", "P", "I", "Niv.", "Banda", "Responsable"].map((h) => <th key={h} style={{ padding: "6px 8px", borderBottom: `2px solid ${C.line}`, fontFamily: mono, textAlign: (h === "P" || h === "I") ? "center" : "left" }}>{h}</th>)}
+                  {editable && <th style={{ borderBottom: `2px solid ${C.line}` }} />}
                 </tr></thead>
-                <tbody>{ratedSorted.map((r) => { const m = BAND_META[r.band]; return (
+                <tbody>{tableRisks.map((r) => { const m = BAND_META[r.band]; return (
                   <tr key={r.code} style={{ borderBottom: `1px solid ${C.line}` }}>
                     <td style={{ padding: "7px 8px", fontFamily: mono, fontWeight: 700, color: C.navy }}>{r.code}</td>
                     <td style={{ padding: "7px 8px" }}>{r.title}</td>
+                    <td style={{ padding: "5px 6px", textAlign: "center" }}>{editable
+                      ? <PIedit value={r.prob} on={r.overriddenFields.includes("prob")} onChange={(v) => onOverride(r.code, "prob", v)} />
+                      : <span style={{ fontFamily: mono }}>{r.prob}</span>}</td>
+                    <td style={{ padding: "5px 6px", textAlign: "center" }}>{editable
+                      ? <PIedit value={r.impact} on={r.overriddenFields.includes("impact")} onChange={(v) => onOverride(r.code, "impact", v)} />
+                      : <span style={{ fontFamily: mono }}>{r.impact}</span>}</td>
                     <td style={{ padding: "7px 8px", fontFamily: mono, fontWeight: 700 }}>{r.level}</td>
                     <td style={{ padding: "7px 8px" }}><span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: m.color, padding: "2px 7px", borderRadius: 20 }}>{m.label}</span></td>
                     <td style={{ padding: "7px 8px", color: C.slate }}>{r.resp}</td>
+                    {editable && <td style={{ padding: "5px 6px", textAlign: "center" }}>{r.overridden
+                      ? <button onClick={() => onResetRisk(r.code)} title="Restablecer valores sugeridos" style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, fontSize: 15, lineHeight: 1 }}>↺</button>
+                      : null}</td>}
                   </tr>); })}</tbody>
               </table>
+              {editable && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8, lineHeight: 1.5 }}>Ajusta <b>P</b> e <b>I</b> con tu criterio experto: el nivel y la matriz se recalculan al instante. Los valores <b style={{ color: C.navy }}>resaltados</b> son ajustes tuyos; <b>↺</b> restablece el sugerido. Los cambios se guardan automáticamente.</div>}
             </div>
           </div>
         </Section>
@@ -797,6 +948,16 @@ function Results({ center, interviews }) {
         </Section>
       </Card>
     </div>
+  );
+}
+
+/* --------------------------- edición P/I --------------------------- */
+function PIedit({ value, on, onChange }) {
+  return (
+    <select value={value} onChange={(e) => onChange(parseInt(e.target.value, 10))}
+      style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "3px 4px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? C.navy : C.line}`, background: on ? hexA(C.navy, 0.08) : "#fff", color: C.navy }}>
+      {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+    </select>
   );
 }
 
