@@ -60,6 +60,31 @@ function createPgStore(connectionString) {
       return withTenant(cid, async (c) => (await c.query(`UPDATE campaign SET ${set} WHERE id=$1 AND consultancy_id=$2 RETURNING *`, [id, cid, ...fields.map((f) => patch[f])])).rows[0] || null);
     },
 
+    // ---- modelos guardados (listar y estado editable) ----
+    async listCampaigns(cid) {
+      return withTenant(cid, async (c) => (await c.query(
+        `SELECT cp.id, cp.code, cp.status, cp.created_at, cp.retention_until,
+                ct.name AS center_name, ct.ownership,
+                (SELECT count(*) FROM interview i WHERE i.campaign_id = cp.id) AS interview_count
+           FROM campaign cp JOIN center ct ON ct.id = cp.center_id
+          WHERE cp.consultancy_id = $1
+          ORDER BY cp.created_at DESC`, [cid])).rows);
+    },
+    async getModelState(cid, id) {
+      return withTenant(cid, async (c) => {
+        const { rows } = await c.query("SELECT model_state FROM campaign WHERE id=$1 AND consultancy_id=$2", [id, cid]);
+        return rows[0] ? (rows[0].model_state || null) : null;
+      });
+    },
+    async saveModelState(cid, id, state) {
+      return withTenant(cid, async (c) => {
+        const { rows } = await c.query(
+          "UPDATE campaign SET model_state=$3::jsonb WHERE id=$1 AND consultancy_id=$2 RETURNING model_state",
+          [id, cid, JSON.stringify(state)]);
+        return rows[0] ? rows[0].model_state : null;
+      });
+    },
+
     async createLink(cid, campaign_id, d) {
       return withTenant(cid, async (c) => (await c.query(
         "INSERT INTO participant_link(consultancy_id,campaign_id,token,assigned_role,expires_at) VALUES($1,$2,$3,$4,$5) RETURNING *",

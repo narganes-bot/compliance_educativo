@@ -40,11 +40,24 @@ function createMemoryStore() {
 
     // ---- campañas ----
     async createCampaign(consultancy_id, center_id, d) {
-      const id = genId(); const row = { id, consultancy_id, center_id, code: uniqueCode(), status: "open", opens_at: new Date().toISOString(), closes_at: null, retention_until: d.retention_until || null, created_by: d.created_by || null, created_at: new Date().toISOString() };
+      const id = genId(); const row = { id, consultancy_id, center_id, code: uniqueCode(), status: "open", opens_at: new Date().toISOString(), closes_at: null, retention_until: d.retention_until || null, model_state: null, created_by: d.created_by || null, created_at: new Date().toISOString() };
       campaigns.set(id, row); return row;
     },
     async getCampaign(consultancy_id, id) { const c = campaigns.get(id); return c && c.consultancy_id === consultancy_id ? c : null; },
     async updateCampaign(consultancy_id, id, patch) { const c = await this.getCampaign(consultancy_id, id); if (!c) return null; Object.assign(c, patch); return c; },
+
+    // ---- modelos guardados (listar y estado editable) ----
+    async listCampaigns(consultancy_id) {
+      return [...campaigns.values()].filter((c) => c.consultancy_id === consultancy_id)
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+        .map((c) => {
+          const center = centers.get(c.center_id) || {};
+          const count = [...interviews.values()].filter((i) => i.campaign_id === c.id).length;
+          return { id: c.id, code: c.code, status: c.status, created_at: c.created_at, retention_until: c.retention_until, center_name: center.name || null, ownership: center.ownership || null, interview_count: count };
+        });
+    },
+    async getModelState(consultancy_id, id) { const c = await this.getCampaign(consultancy_id, id); return c ? (c.model_state || null) : null; },
+    async saveModelState(consultancy_id, id, state) { const c = await this.getCampaign(consultancy_id, id); if (!c) return null; c.model_state = state; return c.model_state; },
 
     // ---- enlaces de participante ----
     async createLink(consultancy_id, campaign_id, d) {
