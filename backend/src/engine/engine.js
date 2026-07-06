@@ -104,7 +104,23 @@ const ANSWER_LABEL = { si: "Sí", parcial: "Parcial", no: "No", ns: "No sé" };
 const bandOf = (level) => (level <= 4 ? "low" : level <= 10 ? "med" : level <= 15 ? "high" : "crit");
 const BAND_LABEL = { low: "Bajo", med: "Medio", high: "Alto", crit: "Crítico" };
 
-function computeRisks(interviews) {
+// Valida una sobrescritura manual de P/I: entero entre 1 y 5, o null.
+const validPI = (v) => (Number.isInteger(v) && v >= 1 && v <= 5 ? v : null);
+
+/**
+ * Calcula los riesgos a partir de las entrevistas.
+ * @param {Array}  interviews  [{ role, answers }]
+ * @param {Object} overrides   sobrescrituras manuales por riesgo:
+ *                             { R07: { prob: 4, impact: 5 }, ... }
+ *                             Solo se aplican valores enteros 1..5.
+ *
+ * Para cada riesgo se conservan SIEMPRE los valores sugeridos por el motor
+ * (probSuggested / impactSuggested) y se calcula el valor final (prob / impact)
+ * usando el manual cuando existe. `overridden` y `overriddenFields` permiten
+ * marcar en la app y en el informe qué valores fijó el consultor a su criterio.
+ */
+function computeRisks(interviews, overrides = {}) {
+  overrides = overrides && typeof overrides === "object" ? overrides : {};
   return RISKS.map((risk) => {
     const qs = QUESTIONS.filter((q) => q.risks.includes(risk.code));
     const answers = [];
@@ -120,16 +136,47 @@ function computeRisks(interviews) {
         if (Math.max(...vals) - Math.min(...vals) >= 0.5) discrepancies.push({ q: q.q, detail: perQ });
       }
     });
-    if (!answers.length) {
-      return { ...risk, status: "unrated", prob: null, level: null, band: null, control: null, nsCount: 0, missing: [], discrepancies };
-    }
-    const scores = answers.map((a) => ANSWER_VALUE[a]);
-    const control = scores.reduce((s, x) => s + x, 0) / scores.length;
-    const prob = Math.min(5, Math.max(1, Math.round(5 - control * 4)));
-    const level = prob * risk.impact;
+
     const nsCount = answers.filter((a) => a === "ns").length;
     const missing = qs.filter((q) => interviews.some((iv) => ["no", "parcial", "ns"].includes(iv.answers[q.id]))).map((q) => q.q);
-    return { ...risk, status: "rated", prob, level, band: bandOf(level), control, nsCount, missing, discrepancies };
+
+    // Valores sugeridos por el motor
+    let probSuggested = null, control = null;
+    if (answers.length) {
+      const scores = answers.map((a) => ANSWER_VALUE[a]);
+      control = scores.reduce((s, x) => s + x, 0) / scores.length;
+      probSuggested = Math.min(5, Math.max(1, Math.round(5 - control * 4)));
+    }
+    const impactSuggested = risk.impact;
+
+    // Sobrescrituras manuales (criterio experto)
+    const ov = overrides[risk.code] || null;
+    const ovProb = ov ? validPI(ov.prob) : null;
+    const ovImpact = ov ? validPI(ov.impact) : null;
+    const overriddenFields = [];
+    if (ovProb != null) overriddenFields.push("prob");
+    if (ovImpact != null) overriddenFields.push("impact");
+    const overridden = overriddenFields.length > 0;
+
+    // Valores finales: el manual si existe; si no, el sugerido
+    const prob = ovProb != null ? ovProb : probSuggested;
+    const impact = ovImpact != null ? ovImpact : impactSuggested;
+
+    const common = {
+      ...risk,
+      impact,              // valor final (compat. con docgen/app: r.impact)
+      prob,                // valor final (compat. con docgen/app: r.prob)
+      probSuggested, impactSuggested,
+      overridden, overriddenFields,
+      control, nsCount, missing, discrepancies,
+    };
+
+    // "rated" si tenemos P e I (por datos o por criterio experto)
+    if (prob != null && impact != null) {
+      const level = prob * impact;
+      return { ...common, status: "rated", level, band: bandOf(level) };
+    }
+    return { ...common, status: "unrated", level: null, band: null };
   });
 }
 

@@ -5,11 +5,12 @@
  * ================================================================== */
 const E = require("./engine.js");
 
-const ENGINE_VERSION = "1.1.0";
+const ENGINE_VERSION = "1.2.0";
 const VALID_ANSWERS = new Set(["si", "parcial", "no", "ns"]);
 const QIDS = new Set(E.QUESTIONS.map((q) => q.id));
 const ROLE_IDS = new Set(E.ROLES.map((r) => r.id));
 const OWNERSHIP = new Set(["publica", "concertada", "privada"]);
+const RISK_CODES = new Set(E.RISKS.map((r) => r.code));
 
 // Recorta a alias (iniciales): evita almacenar nombres completos.
 function toAlias(name) {
@@ -41,6 +42,21 @@ function normalizeCenter(c) {
   };
 }
 
+// Normaliza las sobrescrituras manuales: solo códigos de riesgo válidos y
+// valores enteros 1..5 para prob/impact.
+function normalizeOverrides(raw) {
+  const out = {};
+  const src = (raw && typeof raw === "object") ? raw : {};
+  for (const [code, v] of Object.entries(src)) {
+    if (!RISK_CODES.has(code) || !v || typeof v !== "object") continue;
+    const clean = {};
+    if (Number.isInteger(v.prob) && v.prob >= 1 && v.prob <= 5) clean.prob = v.prob;
+    if (Number.isInteger(v.impact) && v.impact >= 1 && v.impact <= 5) clean.impact = v.impact;
+    if (Object.keys(clean).length) out[code] = clean;
+  }
+  return out;
+}
+
 // Valida y normaliza el payload completo. Devuelve { ok, errors, data }.
 function validatePayload(payload) {
   const errors = [];
@@ -53,7 +69,8 @@ function validatePayload(payload) {
     if (!Object.keys(iv.answers).length) { errors.push("entrevista sin respuestas válidas descartada"); return false; }
     return true;
   });
-  return { ok: errors.length === 0 || interviews.length > 0, errors, data: { center, interviews } };
+  const overrides = normalizeOverrides(payload.overrides);
+  return { ok: errors.length === 0 || interviews.length > 0, errors, data: { center, interviews, overrides } };
 }
 
 // Cálculo listo para servir por la API (motor + versión).
@@ -63,10 +80,11 @@ function analyze(payload) {
     engineVersion: ENGINE_VERSION,
     center: data.center,
     interviews: data.interviews.length,
-    risks: E.computeRisks(data.interviews),
+    overrides: data.overrides,
+    risks: E.computeRisks(data.interviews, data.overrides),
     coverage: E.computeCoverage(data.interviews),
     generatedAt: new Date().toISOString(),
   };
 }
 
-module.exports = { ENGINE_VERSION, VALID_ANSWERS, toAlias, normalizeInterview, normalizeCenter, validatePayload, analyze };
+module.exports = { ENGINE_VERSION, VALID_ANSWERS, toAlias, normalizeInterview, normalizeCenter, normalizeOverrides, validatePayload, analyze };
