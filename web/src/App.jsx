@@ -412,7 +412,7 @@ export default function App() {
             <Scale size={19} color="#fff" />
           </button>
           <div style={{ lineHeight: 1.15, flex: 1 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 1 }}>Forentia 360</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 1 }}>Forentia360</div>
             <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>Prevención y Compliance educativo</div>
             <div style={{ fontSize: 12, color: C.slate, fontFamily: mono }}>LOPIVI · ISO 37301:2021 · entrevistas → matriz → modelo</div>
           </div>
