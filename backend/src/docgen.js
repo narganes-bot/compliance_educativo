@@ -25,11 +25,12 @@ function safeName(name) { return (name || "centro").replace(/[^\p{L}\p{N}]+/gu, 
  * @param {Array}  interviews [{ role, answers: { q1: 'si', ... } }]
  * @returns {Promise<Buffer>}
  */
-function buildDocxBuffer(center, interviews) {
+function buildDocxBuffer(center, interviews, overrides) {
   center = center || {};
   interviews = interviews || [];
+  overrides = overrides || {};
 
-  const risks = E.computeRisks(interviews);
+  const risks = E.computeRisks(interviews, overrides);
   const coverage = E.computeCoverage(interviews);
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
@@ -38,6 +39,8 @@ function buildDocxBuffer(center, interviews) {
   const nHigh = rated.filter((r) => r.band === "high").length;
   const nMed = rated.filter((r) => r.band === "med").length;
   const nLow = rated.filter((r) => r.band === "low").length;
+  const anyOverride = rated.some((r) => r.overridden);
+  const mark = (r, field) => (r.overriddenFields && r.overriddenFields.includes(field) ? " *" : "");
 
   const tipoLabel = { publica: "pública", concertada: "concertada", privada: "privada" }[center.tipo] || "—";
   const fecha = new Date().toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric" });
@@ -200,7 +203,7 @@ const sec2 = [
 
 // 3. Matriz de riesgos (landscape): heat + tabla
 const matrizRows = ratedSorted.map((r) => [
-  r.code, r.title, String(r.prob), String(r.impact), String(r.level), BAND[r.band].label,
+  r.code, r.title, String(r.prob) + mark(r, "prob"), String(r.impact) + mark(r, "impact"), String(r.level), BAND[r.band].label,
   lawsShortJoin(r.laws), r.resp, r.missing.length ? r.missing.map((m) => ({ bullet: m })) : "Controles conformes según respuestas.",
 ]);
 const unratedList = risks.filter((r) => r.status === "unrated").map((r) => r.code);
@@ -216,6 +219,7 @@ const sec3 = [
     [700, 3000, 460, 460, 540, 1000, 1600, 2240, 4570],
     matrizRows.length ? matrizRows : [["—", "Sin riesgos evaluados", "—", "—", "—", "—", "—", "—", "—"]]
   ),
+  ...(anyOverride ? [p("*  Valor de Probabilidad (P) o Impacto (I) ajustado por el consultor a criterio experto. El valor sugerido por el motor se conserva y puede consultarse en la aplicación.", { before: 80, size: 16, italics: true, color: "595959" })] : []),
   ...(unratedList.length ? [p("Riesgos aún no evaluados (sin respuestas que cubran sus controles): " + unratedList.join(", ") + ".", { before: 80, size: 16, italics: true, color: "595959" })] : []),
 ];
 
