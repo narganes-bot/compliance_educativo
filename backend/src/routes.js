@@ -254,6 +254,20 @@ function buildRouter(store) {
     res.json({ state: saved });
   }));
 
+  // Autenticado: informe .docx completo (docgen.js) por código de sala
+  r.post("/rooms/:code/document", requireAuth, asyncH(async (req, res) => {
+    const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
+    if (!room || !room.campaign) fail(404, "not_found", "Modelo no encontrado.");
+    if (!room.interviews.length) fail(409, "no_data", "El modelo no tiene entrevistas.");
+    const st = await store.getModelStateByCode(req.auth.consultancyId, req.params.code);
+    const overrides = (st && st.overrides) || {};
+    const buffer = await buildDocxBuffer(toEngineCenter(room.center), room.interviews.map((i) => ({ role: i.role, answers: i.answers })), overrides);
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "generate_document", entity: "campaign", entity_id: room.campaign.id, ip: ipOf(req) });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(room.center.name)}.docx"`);
+    res.send(buffer);
+  }));
+
   // Autenticado: eliminar el modelo completo (campaña + entrevistas en cascada)
   r.delete("/rooms/:code", requireAuth, asyncH(async (req, res) => {
     const done = await store.deleteCampaignByCode(req.auth.consultancyId, req.params.code);
