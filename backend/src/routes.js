@@ -1,7 +1,7 @@
 "use strict";
 const express = require("express");
 const { fail, signToken, requireAuth, asyncH } = require("./middleware");
-const { checkPassword } = require("./config");
+const { checkPassword, hashPassword } = require("./config");
 const E = require("./engine/engine.js");
 const IO = require("./engine/engine-io.js");
 const { buildDocxBuffer, safeName } = require("./docgen.js");
@@ -55,6 +55,24 @@ function buildRouter(store) {
     const user = await store.getUserById(req.auth.userId);
     const consultancy = await store.getConsultancy(req.auth.consultancyId);
     res.json({ user: { id: user.id, email: user.email, display_name: user.display_name, role: user.role }, consultancy: { id: consultancy.id, name: consultancy.name } });
+  }));
+
+  // Cambiar la propia contraseña (verifica la actual, guarda la nueva cifrada).
+  r.post("/me/password", requireAuth, asyncH(async (req, res) => {
+    const current = req.body && req.body.current;
+    const next = req.body && req.body.next;
+    if (!current || !next) fail(400, "missing_fields", "Debes indicar la contraseña actual y la nueva.");
+    if (String(next).length < 8) fail(400, "weak_password", "La nueva contraseña debe tener al menos 8 caracteres.");
+    const user = await store.getUserById(req.auth.userId);
+    if (!user) fail(404, "not_found", "Usuario no encontrado.");
+    const ok = await checkPassword(current, user.password_hash);
+    if (!ok) {
+      await audit(req.auth.consultancyId, { actor_user_id: user.id, action: "password_change_failed", ip: ipOf(req) });
+      fail(401, "invalid_credentials", "La contraseña actual no es correcta.");
+    }
+    await store.updateUserPassword(user.id, await hashPassword(next));
+    await audit(req.auth.consultancyId, { actor_user_id: user.id, action: "password_changed", ip: ipOf(req) });
+    res.json({ ok: true });
   }));
 
   /* ----------------------------- centros ----------------------------- */
