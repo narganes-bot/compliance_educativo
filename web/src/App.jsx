@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Grid3x3, FileText, Plus, Download, AlertTriangle, Check, ChevronRight, Info, Scale,
-  Copy, RefreshCw, LogIn, Share2, ArrowLeft, Send, Loader2, Users, Zap, FileDown
+  Copy, RefreshCw, LogIn, Share2, ArrowLeft, Send, Loader2, Users, Zap, FileDown, Menu, Home
 } from "lucide-react";
 
 /* ================================================================== *
@@ -222,6 +222,14 @@ function makeApiStore(base) {
     mode: "api", persistent: true,
     setToken(t) { token = t; },
     hasToken() { return !!token; },
+    async changePassword(current, next) {
+      const r = await authFetch("/me/password", { method: "POST", body: JSON.stringify({ current, next }) });
+      if (!r.ok) {
+        let msg = "No se pudo cambiar la contraseña.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+    },
     async login(email, password) {
       const r = await fetch(base + "/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       if (!r.ok) throw new Error("Credenciales no válidas.");
@@ -397,6 +405,7 @@ export default function App() {
   const [authed, setAuthed] = useState(store.mode !== "api");
   const logout = () => { try { store.setToken && store.setToken(null); } catch { } setAuthed(false); setView("home"); };
   const canModels = (store.mode === "api" && authed) || (store.mode === "local" && store.persistent);
+  const [pwOpen, setPwOpen] = useState(false);
 
   return (
     <div style={{ fontFamily: sans, background: C.bg, color: C.ink, minHeight: "100vh" }}>
@@ -417,15 +426,13 @@ export default function App() {
             <div style={{ fontSize: 12, color: C.slate, fontFamily: mono }}>LOPIVI (LO 8/2021) · LOPJM (LO 1/1996) · LOE (LO 2/2006) · ISO 37301:2021</div>
           </div>
           {store.mode === "local" && !store.persistent && <span title="Sin almacenamiento persistente en este entorno" style={{ fontSize: 11, color: C.med, fontFamily: mono, display: "inline-flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> modo local</span>}
-          {canModels && (
-            <button onClick={() => setView("models")} title="Mis modelos" style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "6px 12px", cursor: "pointer", color: C.navy, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>
-              <Grid3x3 size={14} /> Mis modelos
-            </button>
-          )}
-          {store.mode === "api" && authed && (
-            <button onClick={logout} title="Cerrar sesión" style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "6px 12px", cursor: "pointer", color: C.navy, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>
-              <LogIn size={14} style={{ transform: "scaleX(-1)" }} /> Cerrar sesión
-            </button>
+          {(canModels || (store.mode === "api" && authed)) && (
+            <HeaderMenu items={[
+              ...(canModels ? [{ key: "models", label: "Mis modelos", icon: Grid3x3, onClick: () => setView("models") }] : []),
+              { key: "home", label: "Inicio", icon: Home, onClick: () => setView("home") },
+              ...(store.mode === "api" && authed ? [{ key: "pw", label: "Cambiar contraseña", icon: Scale, onClick: () => setPwOpen(true) }] : []),
+              ...(store.mode === "api" && authed ? [{ key: "logout", label: "Cerrar sesión", icon: LogIn, danger: true, onClick: logout }] : []),
+            ]} />
           )}
         </div>
       </header>
@@ -444,6 +451,97 @@ export default function App() {
       </div>
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
+      {pwOpen && <PasswordModal onClose={() => setPwOpen(false)} />}
+    </div>
+  );
+}
+
+/* --------------------------- Menú de cabecera --------------------------- */
+function HeaderMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+      <button onClick={() => setOpen((v) => !v)} title="Menú" aria-haspopup="true" aria-expanded={open}
+        style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "7px 11px", cursor: "pointer", color: C.navy, display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 600 }}>
+        <Menu size={16} /> Menú
+      </button>
+      {open && (
+        <div role="menu" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 12px 34px rgba(0,0,0,0.14)", minWidth: 210, padding: 6, zIndex: 40 }}>
+          {items.map((it) => (
+            <React.Fragment key={it.key}>
+              {it.danger && <div style={{ height: 1, background: C.line, margin: "5px 4px" }} />}
+              <button role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}
+                style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", borderRadius: 7, padding: "9px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, fontWeight: 600, color: it.danger ? C.crit : C.ink }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = it.danger ? hexA(C.crit, 0.08) : C.bg)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                <it.icon size={16} style={it.key === "logout" ? { transform: "scaleX(-1)" } : undefined} /> {it.label}
+              </button>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------- Cambiar contraseña --------------------------- */
+function PasswordModal({ onClose }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [repeat, setRepeat] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState(false);
+  const submit = async () => {
+    setErr("");
+    if (!current || !next) { setErr("Rellena la contraseña actual y la nueva."); return; }
+    if (next.length < 8) { setErr("La nueva contraseña debe tener al menos 8 caracteres."); return; }
+    if (next !== repeat) { setErr("La nueva contraseña y su repetición no coinciden."); return; }
+    setBusy(true);
+    try { await store.changePassword(current, next); setOk(true); } catch (e) { setErr(e.message || "No se pudo cambiar la contraseña."); } finally { setBusy(false); }
+  };
+  const field = (label, value, set, ph) => (
+    <label style={{ display: "block", marginBottom: 12 }}>
+      <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.slate, marginBottom: 5 }}>{label}</span>
+      <input type="password" value={value} onChange={(e) => set(e.target.value)} placeholder={ph} autoComplete="off"
+        style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 14 }} />
+    </label>
+  );
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 22, width: "100%", maxWidth: 400, boxShadow: "0 18px 50px rgba(0,0,0,0.25)" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 4 }}>Cambiar contraseña</div>
+        {ok ? (
+          <div>
+            <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: hexA(C.low, 0.12), border: `1px solid ${hexA(C.low, 0.5)}`, borderRadius: 9, padding: "12px 14px", margin: "10px 0 16px" }}>
+              <Check size={18} color={C.low} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: 13.5, color: C.ink }}>Contraseña actualizada. Se usará la próxima vez que inicies sesión.</span>
+            </div>
+            <div style={{ textAlign: "right" }}><PrimaryBtn onClick={onClose}>Entendido</PrimaryBtn></div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12.5, color: C.slate, margin: "2px 0 16px" }}>Introduce tu contraseña actual y la nueva (mínimo 8 caracteres).</div>
+            {field("Contraseña actual", current, setCurrent, "••••••••")}
+            {field("Nueva contraseña", next, setNext, "Mínimo 8 caracteres")}
+            {field("Repite la nueva contraseña", repeat, setRepeat, "••••••••")}
+            {err && <div style={{ fontSize: 13, color: C.crit, marginBottom: 12 }}>{err}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
+              <PrimaryBtn onClick={onClose} ghost>Cancelar</PrimaryBtn>
+              <PrimaryBtn onClick={submit} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : null} {busy ? "Guardando…" : "Guardar"}</PrimaryBtn>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
