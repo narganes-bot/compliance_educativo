@@ -29,6 +29,7 @@ function createPgStore(connectionString) {
     async createUser(consultancy_id, u) { const { rows } = await q("INSERT INTO app_user(consultancy_id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,$5) RETURNING *", [consultancy_id, u.email.toLowerCase(), u.password_hash, u.display_name || null, u.role || "consultant"]); return rows[0]; },
     async findUserByEmail(email) { const { rows } = await q("SELECT * FROM app_user WHERE email=$1", [email.toLowerCase()]); return rows[0] || null; },
     async getUserById(id) { const { rows } = await q("SELECT * FROM app_user WHERE id=$1", [id]); return rows[0] || null; },
+    async updateUserPassword(id, password_hash) { const { rows } = await q("UPDATE app_user SET password_hash=$2 WHERE id=$1 RETURNING id", [id, password_hash]); return rows[0] || null; },
     async getConsultancy(id) { const { rows } = await q("SELECT * FROM consultancy WHERE id=$1", [id]); return rows[0] || null; },
 
     async createCenter(cid, d) {
