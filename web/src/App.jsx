@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Grid3x3, FileText, Plus, Download, AlertTriangle, Check, ChevronRight, Info, Scale,
-  Copy, RefreshCw, LogIn, Share2, ArrowLeft, Send, Loader2, Users, Zap, FileDown, Menu, Home
+  Copy, RefreshCw, LogIn, Share2, ArrowLeft, Send, Loader2, Users, Zap, FileDown, Menu, Home as HomeIcon
 } from "lucide-react";
 
 /* ================================================================== *
@@ -429,7 +429,7 @@ export default function App() {
           {(canModels || (store.mode === "api" && authed)) && (
             <HeaderMenu items={[
               ...(canModels ? [{ key: "models", label: "Mis modelos", icon: Grid3x3, onClick: () => setView("models") }] : []),
-              { key: "home", label: "Inicio", icon: Home, onClick: () => setView("home") },
+              { key: "home", label: "Inicio", icon: HomeIcon, onClick: () => setView("home") },
               ...(store.mode === "api" && authed ? [{ key: "pw", label: "Cambiar contraseña", icon: Scale, onClick: () => setPwOpen(true) }] : []),
               ...(store.mode === "api" && authed ? [{ key: "logout", label: "Cerrar sesión", icon: LogIn, danger: true, onClick: logout }] : []),
             ]} />
