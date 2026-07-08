@@ -28,6 +28,7 @@ function createMemoryStore() {
     },
     async findUserByEmail(email) { return [...users.values()].find((u) => u.email === email.toLowerCase()) || null; },
     async getUserById(id) { return users.get(id) || null; },
+    async updateUserPassword(id, password_hash) { const u = users.get(id); if (!u) return null; u.password_hash = password_hash; return { id }; },
     async getConsultancy(id) { return consultancies.get(id) || null; },
 
     // ---- centros ----
