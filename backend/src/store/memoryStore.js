@@ -88,7 +88,7 @@ function createMemoryStore() {
     // ---- entrevistas ----
     async listInterviews(consultancy_id, campaign_id) {
       return [...interviews.values()].filter((i) => i.consultancy_id === consultancy_id && i.campaign_id === campaign_id)
-        .map((i) => ({ id: i.id, role: i.role, alias: i.respondent_alias, submitted_at: i.submitted_at, answers: i.answers }));
+        .map((i) => ({ id: i.id, role: i.role, alias: i.respondent_alias, submitted_at: i.submitted_at, answers: i.answers, comments: i.comments || {} }));
     },
     async resetResponses(consultancy_id, campaign_id) {
       for (const [id, i] of interviews) if (i.consultancy_id === consultancy_id && i.campaign_id === campaign_id) interviews.delete(id);
@@ -100,13 +100,13 @@ function createMemoryStore() {
       const campaign = campaigns.get(link.campaign_id); const center = centers.get(campaign.center_id);
       return { consultancy_id: link.consultancy_id, link, campaign, center };
     },
-    async submitInterview(token, { role, alias, answers }) {
+    async submitInterview(token, { role, alias, answers, comments }) {
       const link = byToken(token); if (!link) throw Object.assign(new Error("token no válido"), { code: "invalid_token" });
       if (link.expires_at && new Date(link.expires_at) < new Date()) throw Object.assign(new Error("enlace caducado"), { code: "link_expired" });
       const campaign = campaigns.get(link.campaign_id);
       if (campaign.status !== "open") throw Object.assign(new Error("campaña cerrada"), { code: "campaign_closed" });
       const id = genId();
-      interviews.set(id, { id, consultancy_id: link.consultancy_id, campaign_id: link.campaign_id, participant_link_id: link.id, role: link.assigned_role || role, respondent_alias: alias || null, submitted_at: new Date().toISOString(), answers });
+      interviews.set(id, { id, consultancy_id: link.consultancy_id, campaign_id: link.campaign_id, participant_link_id: link.id, role: link.assigned_role || role, respondent_alias: alias || null, submitted_at: new Date().toISOString(), answers, comments: comments || {} });
       link.used_at = new Date().toISOString();
       return id;
     },
@@ -118,7 +118,7 @@ function createMemoryStore() {
       if (!campaign || campaign.consultancy_id !== cid) return null;
       const center = centers.get(campaign.center_id);
       const rows = [...interviews.values()].filter((i) => i.campaign_id === campaign.id)
-        .map((i) => ({ id: i.id, role: i.role, alias: i.respondent_alias, submitted_at: i.submitted_at, answers: i.answers }));
+        .map((i) => ({ id: i.id, role: i.role, alias: i.respondent_alias, submitted_at: i.submitted_at, answers: i.answers, comments: i.comments || {} }));
       return { campaign, center, interviews: rows };
     },
     async getRoomPublic(code) {
@@ -127,13 +127,24 @@ function createMemoryStore() {
       const center = centers.get(campaign.center_id);
       return { center: { name: center.name }, status: campaign.status };
     },
-    async submitInterviewByCode(code, { role, alias, answers }) {
+    async submitInterviewByCode(code, { role, alias, answers, comments }) {
       const campaign = [...campaigns.values()].find((c) => c.code === code);
       if (!campaign) throw Object.assign(new Error("código no válido"), { code: "invalid_code" });
       if (campaign.status !== "open") throw Object.assign(new Error("campaña cerrada"), { code: "campaign_closed" });
       const id = genId();
-      interviews.set(id, { id, consultancy_id: campaign.consultancy_id, campaign_id: campaign.id, participant_link_id: null, role, respondent_alias: alias || null, submitted_at: new Date().toISOString(), answers });
+      interviews.set(id, { id, consultancy_id: campaign.consultancy_id, campaign_id: campaign.id, participant_link_id: null, role, respondent_alias: alias || null, submitted_at: new Date().toISOString(), answers, comments: comments || {} });
       return { id, consultancy_id: campaign.consultancy_id };
+    },
+    async updateInterview(consultancy_id, interviewId, { role, alias, answers, comments }) {
+      const iv = interviews.get(interviewId);
+      if (!iv || iv.consultancy_id !== consultancy_id) return null;
+      if (role) iv.role = role;
+      iv.respondent_alias = alias || null;
+      iv.answers = answers || {};
+      const clean = {};
+      Object.keys(iv.answers).forEach((qid) => { const a = iv.answers[qid]; if ((a === "parcial" || a === "ns") && comments && comments[qid]) clean[qid] = comments[qid]; });
+      iv.comments = clean;
+      return { id: interviewId };
     },
     async resetByCodeForTenant(cid, code) {
       const campaign = [...campaigns.values()].find((c) => c.code === code && c.consultancy_id === cid);

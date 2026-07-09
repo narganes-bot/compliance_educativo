@@ -120,7 +120,8 @@ function createPgStore(connectionString) {
       return withTenant(cid, async (c) => {
         const { rows } = await c.query(
           `SELECT i.id, i.role, i.respondent_alias AS alias, i.submitted_at,
-                  COALESCE(jsonb_object_agg(r.question_id, r.answer) FILTER (WHERE r.id IS NOT NULL), '{}'::jsonb) AS answers
+                  COALESCE(jsonb_object_agg(r.question_id, r.answer) FILTER (WHERE r.id IS NOT NULL), '{}'::jsonb) AS answers,
+                  COALESCE(jsonb_object_agg(r.question_id, r.comment) FILTER (WHERE r.comment IS NOT NULL), '{}'::jsonb) AS comments
              FROM interview i LEFT JOIN response r ON r.interview_id=i.id
             WHERE i.campaign_id=$1 AND i.consultancy_id=$2 GROUP BY i.id ORDER BY i.submitted_at`, [campaign_id, cid]);
         return rows;
@@ -144,8 +145,8 @@ function createPgStore(connectionString) {
         center: { name: r.center_name, ownership: r.ownership, stages: r.stages, num_students: r.num_students, ccaa: r.ccaa },
       };
     },
-    async submitInterview(token, { role, alias, answers }) {
-      const { rows } = await q("SELECT submit_interview($1,$2,$3,$4::jsonb) AS id", [token, role, alias || null, JSON.stringify(answers)]);
+    async submitInterview(token, { role, alias, answers, comments }) {
+      const { rows } = await q("SELECT submit_interview($1,$2,$3,$4::jsonb,$5::jsonb) AS id", [token, role, alias || null, JSON.stringify(answers), JSON.stringify(comments || {})]);
       return rows[0].id;
     },
 
@@ -157,7 +158,8 @@ function createPgStore(connectionString) {
         const center = (await c.query("SELECT * FROM center WHERE id=$1 AND consultancy_id=$2", [cp.center_id, cid])).rows[0];
         const rows = (await c.query(
           `SELECT i.id, i.role, i.respondent_alias AS alias, i.submitted_at,
-                  COALESCE(jsonb_object_agg(r.question_id, r.answer) FILTER (WHERE r.id IS NOT NULL), '{}'::jsonb) AS answers
+                  COALESCE(jsonb_object_agg(r.question_id, r.answer) FILTER (WHERE r.id IS NOT NULL), '{}'::jsonb) AS answers,
+                  COALESCE(jsonb_object_agg(r.question_id, r.comment) FILTER (WHERE r.comment IS NOT NULL), '{}'::jsonb) AS comments
              FROM interview i LEFT JOIN response r ON r.interview_id=i.id
             WHERE i.campaign_id=$1 AND i.consultancy_id=$2 GROUP BY i.id ORDER BY i.submitted_at`, [cp.id, cid])).rows;
         return { campaign: cp, center, interviews: rows };
@@ -168,9 +170,25 @@ function createPgStore(connectionString) {
       if (!rows[0]) return null;
       return { center: { name: rows[0].center_name }, status: rows[0].status };
     },
-    async submitInterviewByCode(code, { role, alias, answers }) {
-      const { rows } = await q("SELECT * FROM submit_interview_by_code($1,$2,$3,$4::jsonb) AS r", [code, role, alias || null, JSON.stringify(answers)]);
+    async submitInterviewByCode(code, { role, alias, answers, comments }) {
+      const { rows } = await q("SELECT * FROM submit_interview_by_code($1,$2,$3,$4::jsonb,$5::jsonb) AS r", [code, role, alias || null, JSON.stringify(answers), JSON.stringify(comments || {})]);
       return { id: rows[0].id, consultancy_id: rows[0].consultancy_id };
+    },
+    // Actualiza una entrevista ya enviada (respuestas, comentarios, rol y alias).
+    // El consultor autenticado puede reescribir las respuestas (RLS por inquilino).
+    async updateInterview(cid, interviewId, { role, alias, answers, comments }) {
+      return withTenant(cid, async (c) => {
+        const iv = (await c.query("SELECT id FROM interview WHERE id=$1 AND consultancy_id=$2", [interviewId, cid])).rows[0];
+        if (!iv) return null;
+        await c.query("UPDATE interview SET role=COALESCE($3,role), respondent_alias=$4 WHERE id=$1 AND consultancy_id=$2", [interviewId, cid, role || null, alias || null]);
+        await c.query("DELETE FROM response WHERE interview_id=$1 AND consultancy_id=$2", [interviewId, cid]);
+        for (const [qid, ans] of Object.entries(answers || {})) {
+          if (!["si", "parcial", "no", "ns"].includes(ans)) continue;
+          const cm = (ans === "parcial" || ans === "ns") ? ((comments && comments[qid]) || null) : null;
+          await c.query("INSERT INTO response (consultancy_id, interview_id, question_id, answer, comment) VALUES ($1,$2,$3,$4,$5)", [cid, interviewId, qid, ans, cm]);
+        }
+        return { id: interviewId };
+      });
     },
     async resetByCodeForTenant(cid, code) {
       return withTenant(cid, async (c) => {
