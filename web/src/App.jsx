@@ -114,6 +114,7 @@ const QUESTIONS = [
   { id: "q29", q: "¿Se aplican los protocolos autonómicos vigentes (acoso, ciberacoso, maltrato)?", roles: ["coordinador", "jefatura"], risks: ["R02", "R05", "R06"], laws: ["auton"] },
 ];
 const questionsForRole = (role) => QUESTIONS.filter((q) => q.roles.includes(role));
+const CONSULTANT_ROLE = "consultor"; // rol de relleno del consultor (no es nivel real)
 const ANSWER_VALUE = { si: 1, parcial: 0.5, no: 0, ns: 0.15 };
 const ANSWER_LABEL = { si: "Sí", parcial: "Parcial", no: "No", ns: "No sé" };
 const ANSWERS = [{ v: "si", label: "Sí" }, { v: "parcial", label: "Parcial" }, { v: "no", label: "No" }, { v: "ns", label: "No sé" }];
@@ -128,7 +129,7 @@ function computeRisks(interviews, overrides = {}) {
     const answers = []; const discrepancies = [];
     qs.forEach((q) => {
       const perQ = [];
-      interviews.forEach((iv) => { const a = iv.answers[q.id]; if (a) { answers.push(a); perQ.push({ role: iv.role, val: ANSWER_VALUE[a], raw: a }); } });
+      interviews.forEach((iv) => { const a = iv.answers[q.id]; if (a) { answers.push(a); if (iv.role !== CONSULTANT_ROLE) perQ.push({ role: iv.role, val: ANSWER_VALUE[a], raw: a }); } });
       if (perQ.length >= 2) { const vals = perQ.map((x) => x.val); if (Math.max(...vals) - Math.min(...vals) >= 0.5) discrepancies.push({ q: q.q, detail: perQ }); }
     });
     const nsCount = answers.filter((a) => a === "ns").length;
@@ -709,6 +710,43 @@ function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon
   );
 }
 
+/* ----------------------- Completar huecos (consultor) ----------------------- */
+function ConsultantFill({ interviews, onSubmit }) {
+  const answeredIds = new Set();
+  interviews.forEach((iv) => Object.keys(iv.answers || {}).forEach((k) => answeredIds.add(k)));
+  const gaps = QUESTIONS.filter((q) => !answeredIds.has(q.id));
+  const [answers, setAnswers] = useState({});
+  const [busy, setBusy] = useState(false);
+  const answered = Object.keys(answers).length;
+  const rolesTxt = (q) => q.roles.map((r) => (ROLES.find((x) => x.id === r) || {}).label || r).join(", ");
+  const go = async () => { setBusy(true); await onSubmit({ id: genId(), role: CONSULTANT_ROLE, name: "Consultor", answers }); setBusy(false); setAnswers({}); };
+  if (!gaps.length) return <Empty text="No hay huecos: todas las preguntas tienen ya al menos una respuesta." />;
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 10 }}>Hay {gaps.length} pregunta(s) que nadie ha respondido. Responde las que puedas con tu criterio; quedarán registradas como respuesta del consultor.</div>
+      <div style={{ margin: "6px 0", fontSize: 12, color: C.slate, fontFamily: mono }}>{answered}/{gaps.length} respondidas</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {gaps.map((q) => (
+          <div key={q.id} style={{ padding: "12px 14px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.bg }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
+              <span style={{ fontFamily: mono, fontSize: 10.5, color: C.slate, marginTop: 2, whiteSpace: "nowrap" }}>{q.risks.join("·")}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 500 }}>{q.q}</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Correspondía a: {rolesTxt(q)}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {ANSWERS.map((a) => { const on = answers[q.id] === a.v; return <button key={a.v} onClick={() => setAnswers({ ...answers, [q.id]: a.v })}
+                style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? C.action : C.line}`, background: on ? C.action : "#fff", color: on ? "#fff" : C.slate }}>{a.label}</button>; })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+        <PrimaryBtn onClick={go} disabled={busy || answered === 0}>{busy ? <Loader2 size={16} className="spin" /> : <Check size={16} />} Guardar respuestas del consultor</PrimaryBtn>
+      </div>
+    </div>
+  );
+}
+
 /* --------------------------- Participant --------------------------- */
 function Participant({ code, center, onBack }) {
   const [done, setDone] = useState(false);
@@ -858,6 +896,7 @@ function Dashboard({ code, center, onBack }) {
   const [auto, setAuto] = useState(true);
   const [copied, setCopied] = useState(false);
   const [interviewing, setInterviewing] = useState(false);
+  const [filling, setFilling] = useState(false);
   const [overrides, setOverrides] = useState({});
   const timer = useRef(null);
   const load = useCallback(async () => {
@@ -881,6 +920,11 @@ function Dashboard({ code, center, onBack }) {
   const resetRisk = (rcode) => { const next = { ...overrides }; delete next[rcode]; persistOverrides(next); };
 
   const byRole = {}; interviews.forEach((iv) => { byRole[iv.role] = (byRole[iv.role] || 0) + 1; });
+  const realInterviews = interviews.filter((iv) => iv.role !== CONSULTANT_ROLE);
+  const consultorFills = interviews.length - realInterviews.length;
+  const levelsCovered = ROLES.filter((r) => byRole[r.id]).length;
+  const answeredIds = new Set(); interviews.forEach((iv) => Object.keys(iv.answers || {}).forEach((k) => answeredIds.add(k)));
+  const gapCount = QUESTIONS.filter((q) => !answeredIds.has(q.id)).length;
   const risks = computeRisks(interviews, overrides);
   const critHigh = risks.filter((r) => ["crit", "high"].includes(r.band)).sort((a, b) => b.level - a.level);
   const copy = async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { } };
@@ -903,9 +947,22 @@ function Dashboard({ code, center, onBack }) {
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: C.slate }}><Share2 size={13} /> Comparte el código para que cada persona responda, o registra tú mismo la entrevista.</span>
-          <PrimaryBtn onClick={() => setInterviewing((v) => !v)} ghost={interviewing}><Plus size={16} /> {interviewing ? "Cerrar" : "Registrar una entrevista"}</PrimaryBtn>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <PrimaryBtn onClick={() => { setFilling(false); setInterviewing((v) => !v); }} ghost={interviewing}><Plus size={16} /> {interviewing ? "Cerrar" : "Registrar una entrevista"}</PrimaryBtn>
+            {interviews.length > 0 && <PrimaryBtn onClick={() => { setInterviewing(false); setFilling((v) => !v); }} ghost={!filling}><Zap size={16} /> {filling ? "Cerrar" : `Completar huecos${gapCount ? ` (${gapCount})` : ""}`}</PrimaryBtn>}
+          </div>
         </div>
       </Card>
+
+      {filling && (
+        <Card style={{ marginBottom: 16, borderColor: C.action }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Completar huecos (respuesta del consultor)</div>
+            <span style={{ fontSize: 12, color: C.slate }}>Solo preguntas que nadie ha respondido · se marcan como aportación del consultor</span>
+          </div>
+          <ConsultantFill interviews={interviews} onSubmit={async (iv) => { await saveInterview(iv); setFilling(false); }} />
+        </Card>
+      )}
 
       {interviewing && (
         <Card style={{ marginBottom: 16, borderColor: C.navy }}>
@@ -926,10 +983,11 @@ function Dashboard({ code, center, onBack }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 18, marginBottom: 14, flexWrap: "wrap" }}>
-          <Metric k="Entrevistas" v={interviews.length} />
-          <Metric k="Niveles" v={`${Object.keys(byRole).length}/${ROLES.length}`} />
+          <Metric k="Entrevistas" v={realInterviews.length} />
+          <Metric k="Niveles" v={`${levelsCovered}/${ROLES.length}`} />
           <Metric k="Alto+crítico" v={critHigh.length} color={critHigh.length ? C.crit : C.low} />
         </div>
+        {consultorFills > 0 && <div style={{ fontSize: 12, color: C.action, marginBottom: 12, display: "flex", gap: 6, alignItems: "center" }}><Zap size={13} /> Incluye respuestas de relleno del consultor (no cuentan como nivel ni como discrepancia).</div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {ROLES.map((r) => { const n = byRole[r.id] || 0; return (
             <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5 }}>
