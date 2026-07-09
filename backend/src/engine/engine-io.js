@@ -28,7 +28,17 @@ function normalizeInterview(iv) {
       if (QIDS.has(k) && VALID_ANSWERS.has(v)) answers[k] = v;
     }
   }
-  return { id: (iv && iv.id) || null, role, alias: toAlias(iv && (iv.alias || iv.name)), answers };
+  // Comentarios: solo se conservan en respuestas 'parcial' o 'ns', recortados a 500.
+  const comments = {};
+  if (iv && iv.comments && typeof iv.comments === "object") {
+    for (const [k, v] of Object.entries(iv.comments)) {
+      if (QIDS.has(k) && (answers[k] === "parcial" || answers[k] === "ns") && typeof v === "string") {
+        const t = v.trim().slice(0, 500);
+        if (t) comments[k] = t;
+      }
+    }
+  }
+  return { id: (iv && iv.id) || null, role, alias: toAlias(iv && (iv.alias || iv.name)), answers, comments };
 }
 
 function normalizeCenter(c) {
