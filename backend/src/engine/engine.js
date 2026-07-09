@@ -40,6 +40,11 @@ const ROLES = [
 const roleLabel = (id) => (ROLES.find((r) => r.id === id) || {}).label || id;
 const roleShort = (id) => roleLabel(id).split(/[ /]/)[0];
 
+// Rol especial de "relleno" del consultor: NO es un nivel jerárquico real.
+// Sus respuestas ayudan a evaluar riesgos que quedarían sin datos, pero no se
+// cuentan como nivel cubierto ni entran en la detección de discrepancias.
+const CONSULTANT_ROLE = "consultor";
+
 const RISKS = [
   { code: "R01", title: "Ausencia de protocolos internos de protección", impact: 4, resp: "Dirección / Titularidad", laws: ["lopivi", "lopjm"] },
   { code: "R02", title: "Protocolos no implantados o desactualizados", impact: 4, resp: "Coordinador/a de Bienestar", laws: ["lopivi", "auton"] },
@@ -129,7 +134,7 @@ function computeRisks(interviews, overrides = {}) {
       const perQ = [];
       interviews.forEach((iv) => {
         const a = iv.answers[q.id];
-        if (a) { answers.push(a); perQ.push({ role: iv.role, val: ANSWER_VALUE[a], raw: a }); }
+        if (a) { answers.push(a); if (iv.role !== CONSULTANT_ROLE) perQ.push({ role: iv.role, val: ANSWER_VALUE[a], raw: a }); }
       });
       if (perQ.length >= 2) {
         const vals = perQ.map((x) => x.val);
@@ -191,5 +196,5 @@ function computeCoverage(interviews) {
 module.exports = {
   LAW_CATALOG, LAW_LEVELS, lawShort, lawLabel, ROLES, roleLabel, roleShort,
   RISKS, QUESTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
-  computeRisks, computeCoverage,
+  computeRisks, computeCoverage, CONSULTANT_ROLE,
 };

@@ -8,7 +8,7 @@ const E = require("./engine.js");
 const ENGINE_VERSION = "1.2.0";
 const VALID_ANSWERS = new Set(["si", "parcial", "no", "ns"]);
 const QIDS = new Set(E.QUESTIONS.map((q) => q.id));
-const ROLE_IDS = new Set(E.ROLES.map((r) => r.id));
+const ROLE_IDS = new Set([...E.ROLES.map((r) => r.id), E.CONSULTANT_ROLE]);
 const OWNERSHIP = new Set(["publica", "concertada", "privada"]);
 const RISK_CODES = new Set(E.RISKS.map((r) => r.code));
 
