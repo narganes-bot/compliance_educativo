@@ -918,6 +918,8 @@ function Dashboard({ code, center, onBack }) {
   const [interviewing, setInterviewing] = useState(false);
   const [filling, setFilling] = useState(false);
   const [editing, setEditing] = useState(null);
+  const editRef = useRef(null);
+  useEffect(() => { if (editing && editRef.current) editRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); }, [editing]);
   const [overrides, setOverrides] = useState({});
   const timer = useRef(null);
   const load = useCallback(async () => {
@@ -998,13 +1000,15 @@ function Dashboard({ code, center, onBack }) {
       )}
 
       {editing && (
-        <Card style={{ marginBottom: 16, borderColor: C.action }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Editar entrevista · {editing.alias || editing.name || "(sin alias)"} — {roleLbl(editing.role)}</div>
-            <button onClick={() => setEditing(null)} style={{ border: "none", background: "transparent", color: C.slate, cursor: "pointer", fontSize: 12.5 }}>Cancelar</button>
-          </div>
-          <InterviewForm submitLabel="Guardar cambios" submitIcon={Check} initial={editing} onSubmit={updateInterviewHandler} />
-        </Card>
+        <div ref={editRef}>
+          <Card style={{ marginBottom: 16, borderColor: C.action }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>Editar entrevista · {editing.alias || editing.name || "(sin alias)"} — {roleLbl(editing.role)}</div>
+              <button onClick={() => setEditing(null)} style={{ border: "none", background: "transparent", color: C.slate, cursor: "pointer", fontSize: 12.5 }}>Cancelar</button>
+            </div>
+            <InterviewForm key={editing.id} submitLabel="Guardar cambios" submitIcon={Check} initial={editing} onSubmit={updateInterviewHandler} />
+          </Card>
+        </div>
       )}
 
       <Card style={{ marginBottom: 16 }}>
