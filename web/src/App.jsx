@@ -195,6 +195,16 @@ const localStore = {
   async getRoom(code) { return await KV.get(metaKey(code)); },
   async submitInterview(code, iv) { await KV.set(respPrefix(code) + iv.id, { ...iv, submittedAt: new Date().toISOString() }); },
   async updateInterview(code, id, iv) { const prev = await KV.get(respPrefix(code) + id); await KV.set(respPrefix(code) + id, { ...iv, id, submittedAt: (prev && prev.submittedAt) || new Date().toISOString() }); },
+  async updateCenter(code, patch) {
+    const room = (await KV.get(metaKey(code))) || {};
+    const next = { ...room };
+    if (patch.name !== undefined) next.name = patch.name;
+    if (patch.ownership !== undefined) next.tipo = patch.ownership;
+    if (patch.stages !== undefined) next.etapas = patch.stages || "";
+    if (patch.num_students !== undefined) next.alumnos = patch.num_students != null ? String(patch.num_students) : "";
+    await KV.set(metaKey(code), next);
+    return { name: next.name, tipo: next.tipo, etapas: next.etapas || "", alumnos: next.alumnos || "" };
+  },
   async listInterviews(code) { const keys = await KV.list(respPrefix(code)); const rows = await Promise.all(keys.map((k) => KV.get(k))); return rows.filter(Boolean); },
   async resetInterviews(code) { const keys = await KV.list(respPrefix(code)); await Promise.all(keys.map((k) => KV.del(k))); },
   async listModels() {
@@ -259,6 +269,12 @@ function makeApiStore(base) {
     async updateInterview(code, id, iv) {
       const r = await authFetch(`/rooms/${code}/interview/${id}`, { method: "PUT", body: JSON.stringify({ role: iv.role, alias: iv.name || iv.alias || "", answers: iv.answers, comments: iv.comments || {} }) });
       if (!r.ok) throw new Error("No se pudo actualizar la entrevista.");
+    },
+    async updateCenter(code, patch) {
+      const r = await authFetch(`/rooms/${code}/center`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!r.ok) throw new Error("No se pudieron guardar los datos del centro.");
+      const j = await r.json(); const c = j.center || {};
+      return { name: c.name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "" };
     },
     async listInterviews(code) {
       const r = await authFetch(`/rooms/${code}`);
@@ -927,7 +943,41 @@ function Demo({ onBack }) {
 }
 
 /* ---------------------------- Dashboard ---------------------------- */
-function Dashboard({ code, center, onBack }) {
+/* ------------------------ Editar datos del centro ------------------------ */
+function CenterEditForm({ center, onSave, onCancel }) {
+  const [name, setName] = useState((center && center.name) || "");
+  const [tipo, setTipo] = useState((center && center.tipo) || "concertada");
+  const [alumnos, setAlumnos] = useState((center && center.alumnos) || "");
+  const [etapas, setEtapas] = useState((center && center.etapas) || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const go = async () => {
+    if (!name.trim()) { setErr("El nombre del centro es obligatorio."); return; }
+    setBusy(true); setErr("");
+    try { await onSave({ name: name.trim(), ownership: tipo, stages: etapas.trim() || null, num_students: alumnos ? parseInt(alumnos, 10) : null }); }
+    catch (e) { setErr(e.message || "No se pudieron guardar los datos."); setBusy(false); }
+  };
+  return (
+    <div style={{ marginTop: 14, padding: 16, borderRadius: 10, border: `1px solid ${C.action}`, background: C.bg }}>
+      <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 10 }}>Editar datos del centro</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <label style={{ gridColumn: "1 / -1" }}><Lbl>Nombre del centro</Lbl><input style={field} value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label><Lbl>Titularidad</Lbl><select style={field} value={tipo} onChange={(e) => setTipo(e.target.value)}><option value="publica">Pública</option><option value="concertada">Concertada</option><option value="privada">Privada</option></select></label>
+        <label><Lbl>Nº de alumnado</Lbl><input style={field} value={alumnos} onChange={(e) => setAlumnos(e.target.value.replace(/[^0-9]/g, ""))} placeholder="p. ej. 620" /></label>
+        <label style={{ gridColumn: "1 / -1" }}><Lbl>Etapas educativas</Lbl><input style={field} value={etapas} onChange={(e) => setEtapas(e.target.value)} placeholder="Infantil, Primaria, ESO…" /></label>
+      </div>
+      {err && <div style={{ fontSize: 12.5, color: C.crit, marginTop: 8 }}>{err}</div>}
+      <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+        <PrimaryBtn onClick={onCancel} ghost>Cancelar</PrimaryBtn>
+        <PrimaryBtn onClick={go} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : <Check size={16} />} Guardar datos</PrimaryBtn>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ code, center: centerProp, onBack }) {
+  const [center, setCenter] = useState(centerProp);
+  const [editingCenter, setEditingCenter] = useState(false);
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [auto, setAuto] = useState(true);
@@ -980,6 +1030,7 @@ function Dashboard({ code, center, onBack }) {
           <div>
             <div style={{ fontSize: 17, fontWeight: 700 }}>{center?.name || "Centro"}</div>
             <div style={{ fontSize: 12.5, color: C.slate }}>Titularidad {tipoTxt(center?.tipo)}{center?.etapas ? ` · ${center.etapas}` : ""}{center?.alumnos ? ` · ${center.alumnos} alumnos/as` : ""}</div>
+            <button onClick={() => setEditingCenter((v) => !v)} style={{ marginTop: 6, border: "none", background: "transparent", color: C.action, cursor: "pointer", fontSize: 12, fontWeight: 600, padding: 0, display: "inline-flex", alignItems: "center", gap: 4 }}><RefreshCw size={12} /> {editingCenter ? "Cerrar edición" : "Editar datos del centro"}</button>
           </div>
           <div style={{ padding: "8px 12px", borderRadius: 9, background: C.bg, border: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 11, color: C.slate, fontFamily: mono }}>CÓDIGO</span>
@@ -994,6 +1045,8 @@ function Dashboard({ code, center, onBack }) {
             {interviews.length > 0 && <PrimaryBtn onClick={() => { setInterviewing(false); setFilling((v) => !v); }} ghost={!filling}><Zap size={16} /> {filling ? "Cerrar" : `Completar huecos${gapCount ? ` (${gapCount})` : ""}`}</PrimaryBtn>}
           </div>
         </div>
+        {editingCenter && <CenterEditForm center={center} onCancel={() => setEditingCenter(false)}
+          onSave={async (patch) => { const updated = await store.updateCenter(code, patch); setCenter(updated); setEditingCenter(false); }} />}
       </Card>
 
       {filling && (
