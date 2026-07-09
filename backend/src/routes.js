@@ -287,6 +287,24 @@ function buildRouter(store) {
     res.json({ state: saved });
   }));
 
+  // Autenticado: editar los datos del centro (nombre, titularidad, etapas, alumnado)
+  r.patch("/rooms/:code/center", requireAuth, asyncH(async (req, res) => {
+    const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
+    if (!room || !room.center) fail(404, "not_found", "Sala no encontrada.");
+    const b = req.body || {};
+    const patch = {};
+    if (typeof b.name === "string" && b.name.trim()) patch.name = b.name.trim().slice(0, 200);
+    if (b.ownership !== undefined) { if (!["publica", "concertada", "privada"].includes(b.ownership)) fail(400, "invalid_ownership", "Titularidad no válida."); patch.ownership = b.ownership; }
+    if (b.stages !== undefined) patch.stages = b.stages ? String(b.stages).slice(0, 300) : null;
+    if (b.num_students !== undefined) { const n = parseInt(b.num_students, 10); patch.num_students = Number.isFinite(n) ? n : null; }
+    if (b.ccaa !== undefined) patch.ccaa = b.ccaa ? String(b.ccaa).slice(0, 120) : null;
+    if (!Object.keys(patch).length) fail(400, "no_changes", "No hay cambios que guardar.");
+    const updated = await store.updateCenter(req.auth.consultancyId, room.center.id, patch);
+    if (!updated) fail(404, "not_found", "Centro no encontrado.");
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "update_center", entity: "center", entity_id: room.center.id, ip: ipOf(req) });
+    res.json({ center: { id: updated.id, name: updated.name, ownership: updated.ownership, stages: updated.stages, num_students: updated.num_students, ccaa: updated.ccaa } });
+  }));
+
   // Autenticado: informe .docx completo (docgen.js) por código de sala
   r.post("/rooms/:code/document", requireAuth, asyncH(async (req, res) => {
     const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
