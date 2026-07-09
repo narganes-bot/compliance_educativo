@@ -194,6 +194,7 @@ const localStore = {
   },
   async getRoom(code) { return await KV.get(metaKey(code)); },
   async submitInterview(code, iv) { await KV.set(respPrefix(code) + iv.id, { ...iv, submittedAt: new Date().toISOString() }); },
+  async updateInterview(code, id, iv) { const prev = await KV.get(respPrefix(code) + id); await KV.set(respPrefix(code) + id, { ...iv, id, submittedAt: (prev && prev.submittedAt) || new Date().toISOString() }); },
   async listInterviews(code) { const keys = await KV.list(respPrefix(code)); const rows = await Promise.all(keys.map((k) => KV.get(k))); return rows.filter(Boolean); },
   async resetInterviews(code) { const keys = await KV.list(respPrefix(code)); await Promise.all(keys.map((k) => KV.del(k))); },
   async listModels() {
@@ -252,14 +253,18 @@ function makeApiStore(base) {
       return { name: j.center.name, status: j.status };
     },
     async submitInterview(code, iv) {
-      const r = await fetch(base + `/rooms/${code}/interview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: iv.role, alias: iv.name || iv.alias || "", answers: iv.answers }) });
+      const r = await fetch(base + `/rooms/${code}/interview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: iv.role, alias: iv.name || iv.alias || "", answers: iv.answers, comments: iv.comments || {} }) });
       if (!r.ok) throw new Error("No se pudo enviar la entrevista.");
+    },
+    async updateInterview(code, id, iv) {
+      const r = await authFetch(`/rooms/${code}/interview/${id}`, { method: "PUT", body: JSON.stringify({ role: iv.role, alias: iv.name || iv.alias || "", answers: iv.answers, comments: iv.comments || {} }) });
+      if (!r.ok) throw new Error("No se pudo actualizar la entrevista.");
     },
     async listInterviews(code) {
       const r = await authFetch(`/rooms/${code}`);
       if (!r.ok) return [];
       const j = await r.json();
-      return (j.interviews || []).map((i) => ({ id: i.id, role: i.role, alias: i.alias, answers: i.answers }));
+      return (j.interviews || []).map((i) => ({ id: i.id, role: i.role, alias: i.alias, answers: i.answers, comments: i.comments || {} }));
     },
     async resetInterviews(code) { await authFetch(`/rooms/${code}/responses`, { method: "DELETE" }); },
     async listModels() {
@@ -672,36 +677,46 @@ function Join({ onJoined, onBack }) {
 }
 
 /* ------------------------- InterviewForm (compartido) ------------------------- */
-function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon = Send, initialRole = "profesorado" }) {
-  const [role, setRole] = useState(initialRole);
-  const [name, setName] = useState("");
-  const [answers, setAnswers] = useState({});
+function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon = Send, initial = null }) {
+  const isConsultantEdit = !!(initial && initial.role === CONSULTANT_ROLE);
+  const [role, setRole] = useState((initial && initial.role) || "profesorado");
+  const [name, setName] = useState((initial && (initial.name || initial.alias)) || "");
+  const [answers, setAnswers] = useState((initial && initial.answers) || {});
+  const [comments, setComments] = useState((initial && initial.comments) || {});
   const [busy, setBusy] = useState(false);
-  const qs = questionsForRole(role);
+  const qs = isConsultantEdit ? QUESTIONS.filter((q) => (initial.answers || {})[q.id] !== undefined) : questionsForRole(role);
   const answered = Object.keys(answers).length;
   const Icon = submitIcon;
-  const go = async () => { setBusy(true); await onSubmit({ id: genId(), role, name: name.trim(), answers }); setBusy(false); setAnswers({}); setName(""); };
+  const go = async () => { setBusy(true); await onSubmit({ id: (initial && initial.id) || genId(), role, name: name.trim(), answers, comments }); setBusy(false); if (!initial) { setAnswers({}); setName(""); setComments({}); } };
+  const setAns = (qid, v) => setAnswers((prev) => { const n = { ...prev }; if (n[qid] === v) delete n[qid]; else n[qid] = v; return n; });
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 10 }}>
-        <label><Lbl>Nivel jerárquico</Lbl><select style={field} value={role} onChange={(e) => { setRole(e.target.value); setAnswers({}); }}>{ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}</select></label>
+        {isConsultantEdit
+          ? <label><Lbl>Origen</Lbl><div style={{ ...field, display: "flex", alignItems: "center", color: C.action, fontWeight: 600 }}>Respuesta del consultor (relleno)</div></label>
+          : <label><Lbl>Nivel jerárquico</Lbl><select style={field} value={role} onChange={(e) => { setRole(e.target.value); setAnswers({}); setComments({}); }}>{ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}</select></label>}
         <label><Lbl>Nombre o iniciales (opcional)</Lbl><input style={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="p. ej. M. L." /></label>
       </div>
       <div style={{ margin: "6px 0", fontSize: 12, color: C.slate, fontFamily: mono }}>{answered}/{qs.length} respondidas</div>
+      <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Puedes cambiar cualquier respuesta; pulsa de nuevo la opción marcada para dejarla en blanco. En «Parcial» y «No sé» puedes añadir un comentario.</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {qs.map((q) => (
+        {qs.map((q) => { const showComment = answers[q.id] === "parcial" || answers[q.id] === "ns"; return (
           <div key={q.id} style={{ padding: "12px 14px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.bg }}>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
               <span style={{ fontFamily: mono, fontSize: 10.5, color: C.slate, marginTop: 2, whiteSpace: "nowrap" }}>{q.risks.join("·")}</span>
               <span style={{ fontSize: 13.5, fontWeight: 500 }}>{q.q}</span>
             </div>
             {q.laws.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 9 }}>{q.laws.map((id) => <LawChip small key={id} id={id} />)}</div>}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {ANSWERS.map((a) => { const on = answers[q.id] === a.v; return <button key={a.v} onClick={() => setAnswers({ ...answers, [q.id]: a.v })}
-                style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? C.navy : C.line}`, background: on ? C.navy : "#fff", color: on ? "#fff" : C.slate }}>{a.label}</button>; })}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {ANSWERS.map((a) => { const on = answers[q.id] === a.v; return <button key={a.v} onClick={() => setAns(q.id, a.v)}
+                  style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? C.navy : C.line}`, background: on ? C.navy : "#fff", color: on ? "#fff" : C.slate }}>{a.label}</button>; })}
+              </div>
+              {showComment && <input value={comments[q.id] || ""} maxLength={500} onChange={(e) => setComments({ ...comments, [q.id]: e.target.value })}
+                placeholder="Comentario (opcional) · sin nombres ni datos personales"
+                style={{ flex: "1 1 220px", minWidth: 180, boxSizing: "border-box", padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.action}`, fontSize: 12.5, background: "#fff" }} />}
             </div>
-          </div>
-        ))}
+          </div>); })}
       </div>
       <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
         <PrimaryBtn onClick={go} disabled={busy || answered === 0}>{busy ? <Loader2 size={16} className="spin" /> : <Icon size={16} />} {submitLabel}</PrimaryBtn>
@@ -716,29 +731,34 @@ function ConsultantFill({ interviews, onSubmit }) {
   interviews.forEach((iv) => Object.keys(iv.answers || {}).forEach((k) => answeredIds.add(k)));
   const gaps = QUESTIONS.filter((q) => !answeredIds.has(q.id));
   const [answers, setAnswers] = useState({});
+  const [comments, setComments] = useState({});
   const [busy, setBusy] = useState(false);
   const answered = Object.keys(answers).length;
   const rolesTxt = (q) => q.roles.map((r) => (ROLES.find((x) => x.id === r) || {}).label || r).join(", ");
-  const go = async () => { setBusy(true); await onSubmit({ id: genId(), role: CONSULTANT_ROLE, name: "Consultor", answers }); setBusy(false); setAnswers({}); };
+  const go = async () => { setBusy(true); await onSubmit({ id: genId(), role: CONSULTANT_ROLE, name: "Consultor", answers, comments }); setBusy(false); setAnswers({}); setComments({}); };
   if (!gaps.length) return <Empty text="No hay huecos: todas las preguntas tienen ya al menos una respuesta." />;
   return (
     <div>
       <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 10 }}>Hay {gaps.length} pregunta(s) que nadie ha respondido. Responde las que puedas con tu criterio; quedarán registradas como respuesta del consultor.</div>
       <div style={{ margin: "6px 0", fontSize: 12, color: C.slate, fontFamily: mono }}>{answered}/{gaps.length} respondidas</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {gaps.map((q) => (
+        {gaps.map((q) => { const showComment = answers[q.id] === "parcial" || answers[q.id] === "ns"; return (
           <div key={q.id} style={{ padding: "12px 14px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.bg }}>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
               <span style={{ fontFamily: mono, fontSize: 10.5, color: C.slate, marginTop: 2, whiteSpace: "nowrap" }}>{q.risks.join("·")}</span>
               <span style={{ fontSize: 13.5, fontWeight: 500 }}>{q.q}</span>
             </div>
             <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Correspondía a: {rolesTxt(q)}</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {ANSWERS.map((a) => { const on = answers[q.id] === a.v; return <button key={a.v} onClick={() => setAnswers({ ...answers, [q.id]: a.v })}
-                style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? C.action : C.line}`, background: on ? C.action : "#fff", color: on ? "#fff" : C.slate }}>{a.label}</button>; })}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {ANSWERS.map((a) => { const on = answers[q.id] === a.v; return <button key={a.v} onClick={() => setAnswers((prev) => { const n = { ...prev }; if (n[q.id] === a.v) delete n[q.id]; else n[q.id] = a.v; return n; })}
+                  style={{ padding: "6px 13px", borderRadius: 7, fontSize: 12.5, fontWeight: 600, cursor: "pointer", border: `1px solid ${on ? C.action : C.line}`, background: on ? C.action : "#fff", color: on ? "#fff" : C.slate }}>{a.label}</button>; })}
+              </div>
+              {showComment && <input value={comments[q.id] || ""} maxLength={500} onChange={(e) => setComments({ ...comments, [q.id]: e.target.value })}
+                placeholder="Comentario (opcional) · sin nombres ni datos personales"
+                style={{ flex: "1 1 220px", minWidth: 180, boxSizing: "border-box", padding: "7px 10px", borderRadius: 7, border: `1px solid ${C.action}`, fontSize: 12.5, background: "#fff" }} />}
             </div>
-          </div>
-        ))}
+          </div>); })}
       </div>
       <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
         <PrimaryBtn onClick={go} disabled={busy || answered === 0}>{busy ? <Loader2 size={16} className="spin" /> : <Check size={16} />} Guardar respuestas del consultor</PrimaryBtn>
@@ -897,6 +917,7 @@ function Dashboard({ code, center, onBack }) {
   const [copied, setCopied] = useState(false);
   const [interviewing, setInterviewing] = useState(false);
   const [filling, setFilling] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [overrides, setOverrides] = useState({});
   const timer = useRef(null);
   const load = useCallback(async () => {
@@ -930,6 +951,8 @@ function Dashboard({ code, center, onBack }) {
   const copy = async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { } };
   const reset = async () => { if (!window.confirm("¿Vaciar todas las entrevistas de esta sala? No se puede deshacer.")) return; await store.resetInterviews(code); load(); };
   const saveInterview = async (iv) => { await store.submitInterview(code, iv); await load(); };
+  const updateInterviewHandler = async (iv) => { await store.updateInterview(code, editing.id, iv); setEditing(null); await load(); };
+  const roleLbl = (id) => id === CONSULTANT_ROLE ? "Consultor (relleno)" : (ROLES.find((r) => r.id === id) || {}).label || id;
 
   return (
     <div><BackLink onClick={onBack} />
@@ -974,6 +997,16 @@ function Dashboard({ code, center, onBack }) {
         </Card>
       )}
 
+      {editing && (
+        <Card style={{ marginBottom: 16, borderColor: C.action }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Editar entrevista · {editing.alias || editing.name || "(sin alias)"} — {roleLbl(editing.role)}</div>
+            <button onClick={() => setEditing(null)} style={{ border: "none", background: "transparent", color: C.slate, cursor: "pointer", fontSize: 12.5 }}>Cancelar</button>
+          </div>
+          <InterviewForm submitLabel="Guardar cambios" submitIcon={Check} initial={editing} onSubmit={updateInterviewHandler} />
+        </Card>
+      )}
+
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>Participación</div>
@@ -997,6 +1030,22 @@ function Dashboard({ code, center, onBack }) {
         </div>
         <div style={{ marginTop: 12, textAlign: "right" }}><button onClick={reset} style={{ border: "none", background: "transparent", color: C.crit, fontSize: 12.5, cursor: "pointer" }}>Vaciar entrevistas de la sala</button></div>
       </Card>
+
+      {interviews.length > 0 && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Entrevistas recogidas</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {interviews.map((iv) => { const isC = iv.role === CONSULTANT_ROLE; const ansN = Object.keys(iv.answers || {}).length; const comN = Object.keys(iv.comments || {}).length; return (
+              <div key={iv.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>{iv.alias || iv.name || "(sin alias)"} <span style={{ color: isC ? C.action : C.slate, fontWeight: 500 }}>· {roleLbl(iv.role)}</span></div>
+                  <div style={{ fontSize: 12, color: C.slate }}>{ansN} respuesta(s){comN ? ` · ${comN} comentario(s)` : ""}</div>
+                </div>
+                <button onClick={() => { setInterviewing(false); setFilling(false); setEditing(iv); }} style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><RefreshCw size={13} /> Editar</button>
+              </div>); })}
+          </div>
+        </Card>
+      )}
 
       {loading && !interviews.length ? (
         <Card><div style={{ display: "flex", gap: 10, alignItems: "center", color: C.slate, fontSize: 13.5 }}><Loader2 size={16} className="spin" /> Cargando entrevistas…</div></Card>
