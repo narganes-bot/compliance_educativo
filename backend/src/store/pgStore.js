@@ -39,6 +39,11 @@ function createPgStore(connectionString) {
     },
     async listCenters(cid) { return withTenant(cid, async (c) => (await c.query("SELECT * FROM center WHERE consultancy_id=$1 ORDER BY created_at DESC", [cid])).rows); },
     async getCenter(cid, id) { return withTenant(cid, async (c) => (await c.query("SELECT * FROM center WHERE id=$1 AND consultancy_id=$2", [id, cid])).rows[0] || null); },
+    async updateCenter(cid, id, patch) {
+      const fields = Object.keys(patch); if (!fields.length) return this.getCenter(cid, id);
+      const set = fields.map((f, i) => `${f}=$${i + 3}`).join(",");
+      return withTenant(cid, async (c) => (await c.query(`UPDATE center SET ${set} WHERE id=$1 AND consultancy_id=$2 RETURNING *`, [id, cid, ...fields.map((f) => patch[f])])).rows[0] || null);
+    },
 
     async createCampaign(cid, center_id, d) {
       return withTenant(cid, async (c) => {

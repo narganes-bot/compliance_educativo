@@ -38,6 +38,7 @@ function createMemoryStore() {
     },
     async listCenters(consultancy_id) { return [...centers.values()].filter((c) => c.consultancy_id === consultancy_id); },
     async getCenter(consultancy_id, id) { const c = centers.get(id); return c && c.consultancy_id === consultancy_id ? c : null; },
+    async updateCenter(consultancy_id, id, patch) { const c = centers.get(id); if (!c || c.consultancy_id !== consultancy_id) return null; Object.assign(c, patch); return c; },
 
     // ---- campañas ----
     async createCampaign(consultancy_id, center_id, d) {
