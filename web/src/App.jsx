@@ -453,7 +453,9 @@ export default function App() {
         {view === "dashboard" && <Dashboard code={code} center={center} onBack={() => setView("home")} />}
         {view === "quick" && <Quick onBack={() => setView("home")} />}
         {view === "demo" && <Demo onBack={() => setView("home")} />}
-        {view === "models" && <Models onOpen={(cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); }} onBack={() => setView("home")} />}
+        {view === "models" && (store.mode === "api" && !authed
+          ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} />
+          : <Models onOpen={(cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); }} onBack={() => setView("home")} />)}
       </div>
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
@@ -554,29 +556,44 @@ function PasswordModal({ onClose }) {
 
 /* ------------------------------ Home ------------------------------ */
 function Home({ go }) {
+  const SectionLabel = ({ children }) => <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.slate, marginBottom: 10 }}>{children}</div>;
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
+      <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>Del diagnóstico al modelo, en una sola herramienta</h1>
         <p style={{ fontSize: 14, color: C.slate, margin: "8px 0 0", maxWidth: 660 }}>
           Recoge las entrevistas del equipo por nivel jerárquico, agrégalas en una matriz de riesgos y genera el modelo con plan a 90 días y descarga del informe en Word.
         </p>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-        <ChoiceCard icon={Share2} title="Crear sala del centro" primary
-          desc="Para el coordinador. Genera un código para el equipo y abre el panel con el modelo completo."
-          cta="Crear sala" onClick={() => go("create")} />
-        <ChoiceCard icon={LogIn} title="Unirse con un código"
-          desc="Para cualquier miembro. Introduce el código, elige tu rol y responde tu entrevista."
-          cta="Unirse" onClick={() => go("join")} />
-        <ChoiceCard icon={Zap} title="Diagnóstico rápido"
-          desc="Para trabajar en solitario. Añade tú mismo las entrevistas en una sesión y obtén el modelo al momento."
-          cta="Empezar" onClick={() => go("quick")} />
-        <ChoiceCard icon={FileText} title="Ver demostración"
-          desc="Un centro ficticio ya rellenado para ver el modelo completo al instante. Ideal para presentar la herramienta."
-          cta="Ver ejemplo" onClick={() => go("demo")} />
+
+      <SectionLabel>Trabajar en un modelo</SectionLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 28 }}>
+        <ChoiceCard icon={Grid3x3} title="Continuar un modelo" primary
+          desc="Abre uno de tus modelos guardados para seguir recogiendo entrevistas, ajustar la matriz o descargar el informe."
+          cta="Ver mis modelos" onClick={() => go("models")} />
+        <ChoiceCard icon={Plus} title="Nuevo modelo"
+          desc="Crea la sala de un centro nuevo. Obtendrás un código para compartir con el equipo y el panel del modelo."
+          cta="Crear modelo" onClick={() => go("create")} />
+      </div>
+
+      <SectionLabel>Otras opciones</SectionLabel>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+        <MiniCard icon={LogIn} title="Responder con un código" desc="Para el personal del centro: introduce el código y responde tu entrevista." onClick={() => go("join")} />
+        <MiniCard icon={Zap} title="Diagnóstico rápido" desc="Trabaja en solitario en una sesión, sin guardar." onClick={() => go("quick")} />
+        <MiniCard icon={FileText} title="Ver demostración" desc="Un centro ficticio ya relleno, para presentar la herramienta." onClick={() => go("demo")} />
       </div>
     </div>
+  );
+}
+function MiniCard({ icon: Icon, title, desc, onClick }) {
+  return (
+    <button onClick={onClick} style={{ textAlign: "left", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start", width: "100%" }}>
+      <div style={{ width: 32, height: 32, borderRadius: 8, background: C.bg, display: "grid", placeItems: "center", flexShrink: 0 }}><Icon size={16} color={C.navy} /></div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, display: "flex", alignItems: "center", gap: 5 }}>{title} <ChevronRight size={14} color={C.slate} /></div>
+        <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>{desc}</div>
+      </div>
+    </button>
   );
 }
 function ChoiceCard({ icon: Icon, title, desc, cta, onClick, primary }) {
