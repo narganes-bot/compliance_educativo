@@ -210,7 +210,7 @@ function buildRouter(store) {
     const ctx = await store.getPublicByToken(req.params.token);
     if (!ctx) fail(404, "not_found", "Enlace no válido.");
     try {
-      const id = await store.submitInterview(req.params.token, { role: iv.role, alias: iv.alias, answers: iv.answers });
+      const id = await store.submitInterview(req.params.token, { role: iv.role, alias: iv.alias, answers: iv.answers, comments: iv.comments });
       await audit(ctx.consultancy_id, { action: "submit_interview", entity: "interview", entity_id: id, ip: ipOf(req) });
       res.status(201).json({ ok: true, interviewId: id });
     } catch (e) {
@@ -235,7 +235,7 @@ function buildRouter(store) {
     if (!iv.role) fail(400, "invalid_role", "Rol no válido.");
     if (!Object.keys(iv.answers).length) fail(400, "no_answers", "No hay respuestas válidas.");
     try {
-      const { id, consultancy_id } = await store.submitInterviewByCode(req.params.code, { role: iv.role, alias: iv.alias, answers: iv.answers });
+      const { id, consultancy_id } = await store.submitInterviewByCode(req.params.code, { role: iv.role, alias: iv.alias, answers: iv.answers, comments: iv.comments });
       await audit(consultancy_id, { action: "submit_interview", entity: "interview", entity_id: id, ip: ipOf(req) });
       res.status(201).json({ ok: true, interviewId: id });
     } catch (e) {
@@ -243,6 +243,21 @@ function buildRouter(store) {
       if (e.code === "invalid_code") fail(404, "not_found", "Sala no encontrada.");
       throw e;
     }
+  }));
+
+  // Autenticado: editar una entrevista ya enviada (respuestas, comentarios, rol, alias)
+  r.put("/rooms/:code/interview/:id", requireAuth, asyncH(async (req, res) => {
+    const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
+    if (!room || !room.campaign) fail(404, "not_found", "Sala no encontrada.");
+    const belongs = room.interviews.some((i) => i.id === req.params.id);
+    if (!belongs) fail(404, "not_found", "Entrevista no encontrada.");
+    const iv = IO.normalizeInterview(req.body || {});
+    if (!iv.role) fail(400, "invalid_role", "Rol no válido.");
+    if (!Object.keys(iv.answers).length) fail(400, "no_answers", "No hay respuestas válidas.");
+    const done = await store.updateInterview(req.auth.consultancyId, req.params.id, { role: iv.role, alias: iv.alias, answers: iv.answers, comments: iv.comments });
+    if (!done) fail(404, "not_found", "Entrevista no encontrada.");
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "update_interview", entity: "interview", entity_id: req.params.id, ip: ipOf(req) });
+    res.json({ ok: true });
   }));
 
   // Autenticado: panel de la sala (centro + entrevistas) para el coordinador
