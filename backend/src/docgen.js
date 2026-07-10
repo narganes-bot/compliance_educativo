@@ -22,7 +22,7 @@ function safeName(name) { return (name || "centro").replace(/[^\p{L}\p{N}]+/gu, 
 /**
  * Construye el informe .docx personalizado y devuelve un Buffer.
  * @param {object} center     { name, tipo, etapas, alumnos, ccaa }
- * @param {Array}  interviews [{ role, answers: { q1: 'si', ... } }]
+ * @param {Array}  interviews [{ role, answers: { q1: 'si', ... }, comments: { q4: '...' } }]
  * @returns {Promise<Buffer>}
  */
 function buildDocxBuffer(center, interviews, overrides) {
@@ -270,6 +270,28 @@ const sec6 = [
     : [p("Sin respuestas «No sé» relevantes.", { italics: true })]),
 ];
 
+// 8. Observaciones de las personas entrevistadas (comentarios de las respuestas)
+const obsRows = [];
+E.QUESTIONS.forEach((qq) => {
+  interviews.forEach((iv) => {
+    const c = iv.comments && iv.comments[qq.id];
+    if (typeof c === "string" && c.trim()) {
+      const who = iv.role === E.CONSULTANT_ROLE ? "Consultor/a" : E.roleShort(iv.role);
+      obsRows.push([qq.q, who, E.ANSWER_LABEL[iv.answers[qq.id]] || "—", c.trim().slice(0, 500)]);
+    }
+  });
+});
+const secObs = [
+  h1("8. Observaciones de las personas entrevistadas"),
+  p("Comentarios aportados junto a las respuestas «Parcial» y «No sé». Matizan el resultado cuantitativo del diagnóstico y orientan la verificación en campo.", { after: 100 }),
+  ...(obsRows.length
+    ? [
+        table(["Pregunta", "Rol", "Respuesta", "Comentario"], [3238, 1300, 900, 4200], obsRows, { zebra: true }),
+        p("Los comentarios se transcriben tal como fueron escritos (máx. 500 caracteres). No deben contener datos personales; si detecta alguno, elimínelo de la entrevista desde la aplicación y vuelva a generar el informe.", { before: 80, size: 16, italics: true, color: "595959" }),
+      ]
+    : [p("Las entrevistas no incluyen comentarios.", { italics: true })]),
+];
+
 // 7. Cobertura normativa
 const cobRows = E.LAW_LEVELS.map((lvl) => {
   const items = coverage.filter((l) => l.level === lvl);
@@ -277,7 +299,7 @@ const cobRows = E.LAW_LEVELS.map((lvl) => {
   return [lvl, items.map((l) => ({ bullet: `${l.covered ? "✓" : "○"}  ${l.label}` }))];
 }).filter(Boolean);
 const sec7 = [
-  h1("8. Cobertura normativa"),
+  h1("9. Cobertura normativa"),
   p("Niveles del marco legal respaldados por al menos una respuesta (✓) frente a los aún no explorados (○). Orienta sobre a qué perfiles conviene seguir entrevistando.", { after: 100 }),
   table(["Nivel del marco", "Normas y estado de cobertura"], [3200, 6438], cobRows, { zebra: true }),
   note("La normativa autonómica y los protocolos de cada Consejería de Educación son de aplicación directa y prevalente en muchas actuaciones; su denominación y vigencia varían por comunidad y deben verificarse."),
@@ -285,7 +307,7 @@ const sec7 = [
 
 // 8. Cierre
 const sec8 = [
-  h1("9. Continuidad y remisión al modelo integral"),
+  h1("10. Continuidad y remisión al modelo integral"),
   p("Este informe personalizado se integra como diagnóstico inicial del Modelo Integral de Prevención de Riesgos y Compliance del centro (apartados 1–12: alcance, marco legal multinivel, mapa de actores, matriz de riesgos, modelo ISO 37301, políticas y protocolos, controles, responsabilidades, plan de implantación e indicadores).", { after: 100 }),
   bullet("Validar el diagnóstico con la dirección, el Coordinador/a de Bienestar y el asesoramiento jurídico."),
   bullet("Ejecutar y hacer seguimiento del plan a 90 días, asignando responsables y evidencias."),
@@ -298,11 +320,11 @@ const sec8 = [
 const numbering = {
   config: [
     { reference: "b1", levels: [
-      { level: 0, format: LevelFormat.BULLET, text: "\u2022", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 460, hanging: 260 } } } },
-      { level: 1, format: LevelFormat.BULLET, text: "\u2013", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 880, hanging: 260 } } } },
+      { level: 0, format: LevelFormat.BULLET, text: "•", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 460, hanging: 260 } } } },
+      { level: 1, format: LevelFormat.BULLET, text: "–", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 880, hanging: 260 } } } },
     ] },
     { reference: "bc", levels: [
-      { level: 0, format: LevelFormat.BULLET, text: "\u2022", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 200, hanging: 160 } } } },
+      { level: 0, format: LevelFormat.BULLET, text: "•", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 200, hanging: 160 } } } },
     ] },
   ],
 };
@@ -341,7 +363,7 @@ const doc = new Document({
   sections: [
     secP([...portada, ...disclaimer, br(), ...sec1, br(), ...sec2]),
     secL([...sec3]),
-    secP([...secJust, br(), ...sec4, br(), ...sec5, br(), ...sec6, br(), ...sec7, br(), ...sec8]),
+    secP([...secJust, br(), ...sec4, br(), ...sec5, br(), ...sec6, br(), ...secObs, br(), ...sec7, br(), ...sec8]),
   ],
 });
 

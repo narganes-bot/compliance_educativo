@@ -145,7 +145,8 @@ function buildRouter(store) {
     res.json({ center: toEngineCenter(center), interviews: interviews.map((i) => ({ role: i.role, alias: i.alias, answers: i.answers })), generatedAt: new Date().toISOString() });
   }));
 
-  // Genera el informe .docx personalizado (motor + generador en servidor)
+  // Genera el informe .docx personalizado (motor + generador en servidor).
+  // Se pasan también los comentarios de las respuestas para que aparezcan en el informe.
   r.post("/campaigns/:id/document", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
     if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
@@ -154,7 +155,7 @@ function buildRouter(store) {
     if (!interviews.length) fail(409, "no_data", "La campaña no tiene entrevistas.");
     const state = await store.getModelState(req.auth.consultancyId, campaign.id);
     const overrides = (state && state.overrides) || {};
-    const buffer = await buildDocxBuffer(toEngineCenter(center), interviews.map((i) => ({ role: i.role, answers: i.answers })), overrides);
+    const buffer = await buildDocxBuffer(toEngineCenter(center), interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })), overrides);
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "generate_document", entity: "campaign", entity_id: campaign.id, ip: ipOf(req) });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(center.name)}.docx"`);
@@ -305,14 +306,15 @@ function buildRouter(store) {
     res.json({ center: { id: updated.id, name: updated.name, ownership: updated.ownership, stages: updated.stages, num_students: updated.num_students, ccaa: updated.ccaa } });
   }));
 
-  // Autenticado: informe .docx completo (docgen.js) por código de sala
+  // Autenticado: informe .docx completo (docgen.js) por código de sala.
+  // Se pasan también los comentarios de las respuestas para que aparezcan en el informe.
   r.post("/rooms/:code/document", requireAuth, asyncH(async (req, res) => {
     const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
     if (!room || !room.campaign) fail(404, "not_found", "Modelo no encontrado.");
     if (!room.interviews.length) fail(409, "no_data", "El modelo no tiene entrevistas.");
     const st = await store.getModelStateByCode(req.auth.consultancyId, req.params.code);
     const overrides = (st && st.overrides) || {};
-    const buffer = await buildDocxBuffer(toEngineCenter(room.center), room.interviews.map((i) => ({ role: i.role, answers: i.answers })), overrides);
+    const buffer = await buildDocxBuffer(toEngineCenter(room.center), room.interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })), overrides);
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "generate_document", entity: "campaign", entity_id: room.campaign.id, ip: ipOf(req) });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(room.center.name)}.docx"`);
