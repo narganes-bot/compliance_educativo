@@ -13,11 +13,13 @@ function createApp(store, options = {}) {
   // CORS: autoriza a la web (otro dominio) a llamar a la API. Usamos token en la
   // cabecera Authorization (no cookies), por lo que "*" es válido y sencillo.
   // Para restringir a tu web, pon CORS_ORIGIN con su dirección exacta.
+  // IMPORTANTE: la lista de métodos debe incluir PUT, que usan la edición de
+  // entrevistas (/rooms/:code/interview/:id) y los ajustes P/I (/rooms/:code/state).
   const corsOrigin = process.env.CORS_ORIGIN || "*";
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", corsOrigin);
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.setHeader("Access-Control-Max-Age", "86400");
     if (req.method === "OPTIONS") return res.status(204).end();
