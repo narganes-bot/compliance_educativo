@@ -720,7 +720,17 @@ function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon
   const qs = isConsultantEdit ? QUESTIONS.filter((q) => (initial.answers || {})[q.id] !== undefined) : questionsForRole(role);
   const answered = Object.keys(answers).length;
   const Icon = submitIcon;
-  const go = async () => { setBusy(true); await onSubmit({ id: (initial && initial.id) || genId(), role, name: name.trim(), answers, comments }); setBusy(false); if (!initial) { setAnswers({}); setName(""); setComments({}); } };
+  // Pase lo que pase (error del servidor, red caída, servidor "dormido"), el
+  // botón deja de girar y se muestra el motivo: el finally garantiza setBusy(false).
+  const go = async () => {
+    setBusy(true);
+    try {
+      await onSubmit({ id: (initial && initial.id) || genId(), role, name: name.trim(), answers, comments });
+      if (!initial) { setAnswers({}); setName(""); setComments({}); }
+    } catch (e) {
+      alert((e && e.message) || "No se pudo guardar. Comprueba la conexión e inténtalo de nuevo en unos segundos.");
+    } finally { setBusy(false); }
+  };
   const setAns = (qid, v) => setAnswers((prev) => { const n = { ...prev }; if (n[qid] === v) delete n[qid]; else n[qid] = v; return n; });
   return (
     <div>
@@ -768,7 +778,16 @@ function ConsultantFill({ interviews, onSubmit }) {
   const [busy, setBusy] = useState(false);
   const answered = Object.keys(answers).length;
   const rolesTxt = (q) => q.roles.map((r) => (ROLES.find((x) => x.id === r) || {}).label || r).join(", ");
-  const go = async () => { setBusy(true); await onSubmit({ id: genId(), role: CONSULTANT_ROLE, name: "Consultor", answers, comments }); setBusy(false); setAnswers({}); setComments({}); };
+  // Mismo tratamiento de errores que en InterviewForm: el spinner nunca se queda colgado.
+  const go = async () => {
+    setBusy(true);
+    try {
+      await onSubmit({ id: genId(), role: CONSULTANT_ROLE, name: "Consultor", answers, comments });
+      setAnswers({}); setComments({});
+    } catch (e) {
+      alert((e && e.message) || "No se pudo guardar. Comprueba la conexión e inténtalo de nuevo en unos segundos.");
+    } finally { setBusy(false); }
+  };
   if (!gaps.length) return <Empty text="No hay huecos: todas las preguntas tienen ya al menos una respuesta." />;
   return (
     <div>
