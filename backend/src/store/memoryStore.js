@@ -30,6 +30,7 @@ function createMemoryStore() {
     async findUserByEmail(email) { return [...users.values()].find((u) => u.email === email.toLowerCase()) || null; },
     async getUserById(id) { return users.get(id) || null; },
     async updateUserPassword(id, password_hash) { const u = users.get(id); if (!u) return null; u.password_hash = password_hash; return { id }; },
+    async updateUserDisplayName(id, display_name) { const u = users.get(id); if (!u) return null; u.display_name = display_name || null; return u; },
     async listUsers(consultancy_id) { return [...users.values()].filter((u) => u.consultancy_id === consultancy_id).sort((a, b) => (a.created_at < b.created_at ? -1 : 1)); },
     async deleteUser(consultancy_id, id) { const u = users.get(id); if (!u || u.consultancy_id !== consultancy_id) return null; users.delete(id); return { id }; },
     async countOwners(consultancy_id) { return [...users.values()].filter((u) => u.consultancy_id === consultancy_id && u.role === "owner").length; },
