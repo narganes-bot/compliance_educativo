@@ -61,6 +61,17 @@ function buildRouter(store) {
     res.json({ user: { id: user.id, email: user.email, display_name: user.display_name, role: user.role }, consultancy: { id: consultancy.id, name: consultancy.name } });
   }));
 
+  // Editar el propio nombre visible (cualquier usuario, sin permisos especiales).
+  r.patch("/me", requireAuth, asyncH(async (req, res) => {
+    if (typeof (req.body && req.body.display_name) !== "string") fail(400, "missing_fields", "Indica el nombre.");
+    const name = req.body.display_name.trim().slice(0, 120);
+    if (!name) fail(400, "missing_fields", "El nombre no puede estar vacío.");
+    const updated = await store.updateUserDisplayName(req.auth.userId, name);
+    if (!updated) fail(404, "not_found", "Usuario no encontrado.");
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "update_own_name", entity: "app_user", entity_id: req.auth.userId, ip: ipOf(req) });
+    res.json({ user: { id: updated.id, email: updated.email, display_name: updated.display_name, role: updated.role } });
+  }));
+
   // Cambiar la propia contraseña (verifica la actual, guarda la nueva cifrada).
   r.post("/me/password", requireAuth, asyncH(async (req, res) => {
     const current = req.body && req.body.current;
@@ -146,6 +157,18 @@ function buildRouter(store) {
     } catch (e) { console.error("mailer invite-user:", e.message); }
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "create_user", entity: "app_user", entity_id: newUser.id, ip: ipOf(req) });
     res.status(201).json({ user: { id: newUser.id, email: newUser.email, display_name: newUser.display_name, role: newUser.role } });
+  }));
+
+  // Editar el nombre visible de cualquier usuario de la consultora. Solo el propietario.
+  r.patch("/users/:id", requireAuth, requireOwner, asyncH(async (req, res) => {
+    if (typeof (req.body && req.body.display_name) !== "string") fail(400, "missing_fields", "Indica el nombre.");
+    const name = req.body.display_name.trim().slice(0, 120);
+    if (!name) fail(400, "missing_fields", "El nombre no puede estar vacío.");
+    const target = await store.getUserById(req.params.id);
+    if (!target || target.consultancy_id !== req.auth.consultancyId) fail(404, "not_found", "Usuario no encontrado.");
+    const updated = await store.updateUserDisplayName(req.params.id, name);
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "update_user_name", entity: "app_user", entity_id: req.params.id, ip: ipOf(req) });
+    res.json({ user: { id: updated.id, email: updated.email, display_name: updated.display_name, role: updated.role } });
   }));
 
   // Elimina el acceso de un usuario. No se puede eliminar a uno mismo ni al único propietario.
