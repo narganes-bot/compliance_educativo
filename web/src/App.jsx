@@ -247,6 +247,22 @@ function makeApiStore(base) {
       if (!r.ok) throw new Error("Credenciales no válidas.");
       token = (await r.json()).token; return true;
     },
+    async requestPasswordReset(email) {
+      const r = await fetch(base + "/auth/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+      if (!r.ok) {
+        let msg = "No se pudo procesar la solicitud.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+    },
+    async resetPassword(token, next) {
+      const r = await fetch(base + "/auth/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, next }) });
+      if (!r.ok) {
+        let msg = "No se pudo restablecer la contraseña.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+    },
     async createRoom(center) {
       const cr = await authFetch("/centers", { method: "POST", body: JSON.stringify({ name: center.name, ownership: center.tipo, stages: center.etapas || null, num_students: center.alumnos ? parseInt(center.alumnos, 10) : null, ccaa: center.ccaa || null }) });
       if (!cr.ok) throw new Error("No se pudo crear el centro.");
@@ -428,6 +444,19 @@ export default function App() {
   const logout = () => { try { store.setToken && store.setToken(null); } catch { } setAuthed(false); setView("home"); };
   const canModels = (store.mode === "api" && authed) || (store.mode === "local" && store.persistent);
   const [pwOpen, setPwOpen] = useState(false);
+  const [resetToken, setResetToken] = useState(null);
+
+  // Si se llega desde el enlace del correo de recuperación (?reset_token=...),
+  // abre directamente la pantalla de "nueva contraseña" y limpia la URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("reset_token");
+    if (t) {
+      setResetToken(t);
+      setView("reset");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   return (
     <div style={{ fontFamily: sans, background: C.bg, color: C.ink, minHeight: "100vh" }}>
@@ -462,7 +491,7 @@ export default function App() {
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 24px" }}>
         {view === "home" && <Home go={setView} />}
         {view === "create" && (store.mode === "api" && !authed
-          ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} />
+          ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} onForgot={() => setView("forgot")} />
           : <Create onDone={(cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); }} onBack={() => setView("home")} />)}
         {view === "join" && <Join onJoined={(cd, ce) => { setCode(cd); setCenter(ce); setView("participant"); }} onBack={() => setView("home")} />}
         {view === "participant" && <Participant code={code} center={center} onBack={() => setView("home")} />}
@@ -470,8 +499,10 @@ export default function App() {
         {view === "quick" && <Quick onBack={() => setView("home")} />}
         {view === "demo" && <Demo onBack={() => setView("home")} />}
         {view === "models" && (store.mode === "api" && !authed
-          ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} />
+          ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} onForgot={() => setView("forgot")} />
           : <Models onOpen={(cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); }} onBack={() => setView("home")} />)}
+        {view === "forgot" && <ForgotPassword onBack={() => setView("home")} />}
+        {view === "reset" && <ResetPassword token={resetToken} onDone={() => setView("home")} onBack={() => setView("home")} />}
       </div>
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
@@ -624,7 +655,7 @@ function ChoiceCard({ icon: Icon, title, desc, cta, onClick, primary }) {
 }
 
 /* ------------------------------ Login ------------------------------ */
-function Login({ onOk, onBack }) {
+function Login({ onOk, onBack, onForgot }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -643,7 +674,91 @@ function Login({ onOk, onBack }) {
         <div style={{ height: 12 }} />
         <label><Lbl>Contraseña</Lbl><input type="password" style={field} value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} autoComplete="current-password" /></label>
         {err && <div style={{ marginTop: 10, fontSize: 12.5, color: C.crit, display: "flex", gap: 6, alignItems: "center" }}><AlertTriangle size={14} /> {err}</div>}
-        <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}><PrimaryBtn onClick={go} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : <LogIn size={16} />} Entrar</PrimaryBtn></div>
+        <div style={{ marginTop: 10, textAlign: "right" }}>
+          <button onClick={onForgot} style={{ border: "none", background: "transparent", color: C.action, fontSize: 12.5, cursor: "pointer", padding: 0 }}>¿Olvidaste tu contraseña?</button>
+        </div>
+        <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}><PrimaryBtn onClick={go} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : <LogIn size={16} />} Entrar</PrimaryBtn></div>
+      </Card>
+    </div>
+  );
+}
+
+/* ------------------------- Recuperar contraseña ------------------------- */
+function ForgotPassword({ onBack }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [sent, setSent] = useState(false);
+  const go = async () => {
+    if (!email.trim()) { setErr("Escribe tu correo."); return; }
+    setBusy(true); setErr("");
+    try { await store.requestPasswordReset(email.trim()); setSent(true); }
+    catch (e) { setErr(e.message || "No se pudo procesar la solicitud."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div><BackLink onClick={onBack} />
+      <Card style={{ maxWidth: 420 }}>
+        <H sub="Te enviaremos un enlace para restablecerla si el correo está registrado.">¿Olvidaste tu contraseña?</H>
+        {sent ? (
+          <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: hexA(C.low, 0.12), border: `1px solid ${hexA(C.low, 0.5)}`, borderRadius: 9, padding: "12px 14px" }}>
+            <Check size={18} color={C.low} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 13.5, color: C.ink }}>Si el correo está registrado, recibirás un enlace en unos minutos. Revisa también la carpeta de spam.</span>
+          </div>
+        ) : (
+          <>
+            <label><Lbl>Correo</Lbl><input style={field} value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} autoComplete="username" /></label>
+            {err && <div style={{ marginTop: 10, fontSize: 12.5, color: C.crit, display: "flex", gap: 6, alignItems: "center" }}><AlertTriangle size={14} /> {err}</div>}
+            <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
+              <PrimaryBtn onClick={go} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : null} {busy ? "Enviando…" : "Enviar enlace"}</PrimaryBtn>
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* -------------------------- Restablecer contraseña -------------------------- */
+function ResetPassword({ token, onDone, onBack }) {
+  const [next, setNext] = useState("");
+  const [repeat, setRepeat] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState(false);
+  const go = async () => {
+    setErr("");
+    if (!token) { setErr("El enlace no es válido. Solicita uno nuevo desde \"¿Olvidaste tu contraseña?\"."); return; }
+    if (next.length < 8) { setErr("La nueva contraseña debe tener al menos 8 caracteres."); return; }
+    if (next !== repeat) { setErr("Las dos contraseñas no coinciden."); return; }
+    setBusy(true);
+    try { await store.resetPassword(token, next); setOk(true); }
+    catch (e) { setErr(e.message || "No se pudo restablecer la contraseña."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div><BackLink onClick={onBack} />
+      <Card style={{ maxWidth: 420 }}>
+        <H sub="Escribe tu nueva contraseña (mínimo 8 caracteres).">Nueva contraseña</H>
+        {ok ? (
+          <div>
+            <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: hexA(C.low, 0.12), border: `1px solid ${hexA(C.low, 0.5)}`, borderRadius: 9, padding: "12px 14px", marginBottom: 16 }}>
+              <Check size={18} color={C.low} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: 13.5, color: C.ink }}>Contraseña actualizada. Ya puedes iniciar sesión con ella.</span>
+            </div>
+            <div style={{ textAlign: "right" }}><PrimaryBtn onClick={onDone}>Ir a inicio</PrimaryBtn></div>
+          </div>
+        ) : (
+          <>
+            <label><Lbl>Nueva contraseña</Lbl><input type="password" style={field} value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></label>
+            <div style={{ height: 12 }} />
+            <label><Lbl>Repite la nueva contraseña</Lbl><input type="password" style={field} value={repeat} onChange={(e) => setRepeat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} autoComplete="new-password" /></label>
+            {err && <div style={{ marginTop: 10, fontSize: 12.5, color: C.crit, display: "flex", gap: 6, alignItems: "center" }}><AlertTriangle size={14} /> {err}</div>}
+            <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
+              <PrimaryBtn onClick={go} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : null} {busy ? "Guardando…" : "Guardar"}</PrimaryBtn>
+            </div>
+          </>
+        )}
       </Card>
     </div>
   );
