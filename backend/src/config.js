@@ -13,6 +13,11 @@ const config = {
     auth: { windowMs: 15 * 60 * 1000, max: parseInt(process.env.RL_AUTH_MAX || "20", 10) },
     participant: { windowMs: 15 * 60 * 1000, max: parseInt(process.env.RL_PARTICIPANT_MAX || "60", 10) },
   },
+  // Recuperación de contraseña por correo (ver mailer.js)
+  resendApiKey: process.env.RESEND_API_KEY || "",
+  mailFrom: process.env.MAIL_FROM || "onboarding@resend.dev",
+  frontendUrl: process.env.FRONTEND_URL || "",
+  passwordResetExpiresMinutes: parseInt(process.env.PASSWORD_RESET_EXPIRES_MIN || "60", 10),
 };
 
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -26,5 +31,8 @@ const genToken = () => crypto.randomBytes(24).toString("base64url");
 const genId = () => crypto.randomUUID();
 const hashPassword = (pw) => bcrypt.hash(pw, 10);
 const checkPassword = (pw, hash) => bcrypt.compare(pw, hash);
+// Hash de un solo sentido para tokens de un solo uso (recuperación de contraseña):
+// en la base de datos solo se guarda este hash, nunca el token que recibe el usuario.
+const hashToken = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
 
-module.exports = { config, genCode, genToken, genId, hashPassword, checkPassword };
+module.exports = { config, genCode, genToken, genId, hashPassword, checkPassword, hashToken };
