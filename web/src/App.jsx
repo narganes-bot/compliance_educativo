@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Grid3x3, FileText, Plus, Download, AlertTriangle, Check, ChevronRight, Info, Scale,
-  Copy, RefreshCw, LogIn, Share2, ArrowLeft, Send, Loader2, Users, Zap, FileDown, Menu, Home as HomeIcon
+  Copy, RefreshCw, LogIn, Share2, ArrowLeft, Send, Loader2, Users, Zap, FileDown, Menu, Home as HomeIcon,
+  UserPlus, Trash2
 } from "lucide-react";
 
 /* ================================================================== *
@@ -242,6 +243,37 @@ function makeApiStore(base) {
         throw new Error(msg);
       }
     },
+    async me() {
+      const r = await authFetch("/me");
+      if (!r.ok) throw new Error("No se pudo obtener el perfil.");
+      return r.json();
+    },
+    async listUsers() {
+      const r = await authFetch("/users");
+      if (!r.ok) {
+        let msg = "No se pudo cargar la lista de usuarios.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+      return (await r.json()).users;
+    },
+    async inviteUser(email, display_name) {
+      const r = await authFetch("/users", { method: "POST", body: JSON.stringify({ email, display_name }) });
+      if (!r.ok) {
+        let msg = "No se pudo enviar la invitación.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+      return (await r.json()).user;
+    },
+    async deleteUser(id) {
+      const r = await authFetch(`/users/${id}`, { method: "DELETE" });
+      if (!r.ok) {
+        let msg = "No se pudo eliminar el usuario.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+    },
     async login(email, password) {
       const r = await fetch(base + "/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       if (!r.ok) throw new Error("Credenciales no válidas.");
@@ -445,6 +477,13 @@ export default function App() {
   const canModels = (store.mode === "api" && authed) || (store.mode === "local" && store.persistent);
   const [pwOpen, setPwOpen] = useState(false);
   const [resetToken, setResetToken] = useState(null);
+  const [me, setMe] = useState(null);
+
+  // Perfil del usuario autenticado (para saber su rol: propietario o consultor).
+  useEffect(() => {
+    if (store.mode === "api" && authed) { store.me().then(setMe).catch(() => setMe(null)); }
+    else { setMe(null); }
+  }, [authed]);
 
   // Si se llega desde el enlace del correo de recuperación (?reset_token=...),
   // abre directamente la pantalla de "nueva contraseña" y limpia la URL.
@@ -481,6 +520,7 @@ export default function App() {
             <HeaderMenu items={[
               ...(canModels ? [{ key: "models", label: "Mis modelos", icon: Grid3x3, onClick: () => setView("models") }] : []),
               { key: "home", label: "Inicio", icon: HomeIcon, onClick: () => setView("home") },
+              ...(store.mode === "api" && authed && me && me.user && me.user.role === "owner" ? [{ key: "users", label: "Usuarios", icon: Users, onClick: () => setView("users") }] : []),
               ...(store.mode === "api" && authed ? [{ key: "pw", label: "Cambiar contraseña", icon: Scale, onClick: () => setPwOpen(true) }] : []),
               ...(store.mode === "api" && authed ? [{ key: "logout", label: "Cerrar sesión", icon: LogIn, danger: true, onClick: logout }] : []),
             ]} />
@@ -503,6 +543,9 @@ export default function App() {
           : <Models onOpen={(cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); }} onBack={() => setView("home")} />)}
         {view === "forgot" && <ForgotPassword onBack={() => setView("home")} />}
         {view === "reset" && <ResetPassword token={resetToken} onDone={() => setView("home")} onBack={() => setView("home")} />}
+        {view === "users" && (store.mode === "api" && !authed
+          ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} onForgot={() => setView("forgot")} />
+          : <UsersScreen onBack={() => setView("home")} meId={me && me.user && me.user.id} />)}
       </div>
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
@@ -764,7 +807,81 @@ function ResetPassword({ token, onDone, onBack }) {
   );
 }
 
-/* ------------------------------ Create ------------------------------ */
+/* --------------------------- Usuarios de la consultora --------------------------- */
+function UsersScreen({ onBack, meId }) {
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState("");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState("");
+  const [delBusy, setDelBusy] = useState(null);
+
+  const load = async () => { setErr(""); try { setList(await store.listUsers()); } catch (e) { setErr(e.message || "No se pudo cargar la lista de usuarios."); } };
+  useEffect(() => { load(); }, []);
+
+  const invite = async () => {
+    setErr(""); setInviteMsg("");
+    if (!email.trim()) { setErr("Escribe el correo de la persona a invitar."); return; }
+    setBusy(true);
+    try {
+      await store.inviteUser(email.trim(), name.trim());
+      setInviteMsg("Invitación enviada. Recibirá un correo para crear su contraseña.");
+      setEmail(""); setName(""); await load();
+    } catch (e) { setErr(e.message || "No se pudo enviar la invitación."); }
+    finally { setBusy(false); }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("¿Eliminar el acceso de este usuario? No podrá volver a iniciar sesión.")) return;
+    setDelBusy(id); setErr("");
+    try { await store.deleteUser(id); await load(); }
+    catch (e) { setErr(e.message || "No se pudo eliminar el usuario."); }
+    finally { setDelBusy(null); }
+  };
+
+  return (
+    <div><BackLink onClick={onBack} />
+      <Card style={{ marginBottom: 18 }}>
+        <H sub="Invita a otra persona de tu consultora. Recibirá un correo para crear su propia contraseña; no la eliges tú.">Invitar a un usuario</H>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <label style={{ flex: "1 1 220px" }}><Lbl>Correo</Lbl><input style={field} value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" /></label>
+          <label style={{ flex: "1 1 220px" }}><Lbl>Nombre (opcional)</Lbl><input style={field} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && invite()} autoComplete="off" /></label>
+        </div>
+        {err && <div style={{ marginTop: 10, fontSize: 12.5, color: C.crit, display: "flex", gap: 6, alignItems: "center" }}><AlertTriangle size={14} /> {err}</div>}
+        {inviteMsg && <div style={{ marginTop: 10, fontSize: 12.5, color: C.low, display: "flex", gap: 6, alignItems: "center" }}><Check size={14} /> {inviteMsg}</div>}
+        <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+          <PrimaryBtn onClick={invite} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : <UserPlus size={16} />} {busy ? "Enviando…" : "Invitar"}</PrimaryBtn>
+        </div>
+      </Card>
+
+      <Card>
+        <H>Usuarios de la consultora</H>
+        {!list ? (
+          <div style={{ fontSize: 13, color: C.slate }}>Cargando…</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {list.map((u) => (
+              <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{u.display_name || u.email}</div>
+                  <div style={{ fontSize: 12, color: C.slate }}>{u.email} · {u.role === "owner" ? "Propietario/a" : "Consultor/a"}</div>
+                </div>
+                {u.id !== meId && (
+                  <button onClick={() => remove(u.id)} disabled={delBusy === u.id} title="Eliminar acceso"
+                    style={{ border: "none", background: "transparent", color: C.crit, cursor: "pointer", padding: 6, display: "grid", placeItems: "center" }}>
+                    {delBusy === u.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                  </button>
+                )}
+              </div>
+            ))}
+            {!list.length && <div style={{ fontSize: 13, color: C.slate }}>No hay usuarios.</div>}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
 function Create({ onDone, onBack }) {
   const [form, setForm] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "" });
   const [busy, setBusy] = useState(false);
