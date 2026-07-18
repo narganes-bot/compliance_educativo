@@ -13,6 +13,7 @@ function createMemoryStore() {
   const links = new Map();
   const interviews = new Map();
   const audits = [];
+  const resetTokens = new Map(); // recuperación de contraseña por correo
 
   const byToken = (token) => [...links.values()].find((l) => l.token === token) || null;
   const uniqueCode = () => { let c; do { c = genCode(); } while ([...campaigns.values()].some((x) => x.code === c)); return c; };
@@ -30,6 +31,16 @@ function createMemoryStore() {
     async getUserById(id) { return users.get(id) || null; },
     async updateUserPassword(id, password_hash) { const u = users.get(id); if (!u) return null; u.password_hash = password_hash; return { id }; },
     async getConsultancy(id) { return consultancies.get(id) || null; },
+
+    // ---- recuperación de contraseña por correo ----
+    async createPasswordResetToken(userId, tokenHash, expiresAt) {
+      const id = genId();
+      const row = { id, user_id: userId, token_hash: tokenHash, expires_at: expiresAt, used_at: null, created_at: new Date().toISOString() };
+      resetTokens.set(id, row); return row;
+    },
+    async getPasswordResetToken(tokenHash) { return [...resetTokens.values()].find((t) => t.token_hash === tokenHash) || null; },
+    async markPasswordResetTokenUsed(id) { const t = resetTokens.get(id); if (t) t.used_at = new Date().toISOString(); },
+    async invalidateUserResetTokens(userId) { for (const t of resetTokens.values()) if (t.user_id === userId && !t.used_at) t.used_at = new Date().toISOString(); },
 
     // ---- centros ----
     async createCenter(consultancy_id, d) {
