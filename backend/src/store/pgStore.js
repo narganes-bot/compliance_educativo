@@ -30,6 +30,9 @@ function createPgStore(connectionString) {
     async findUserByEmail(email) { const { rows } = await q("SELECT * FROM app_user WHERE email=$1", [email.toLowerCase()]); return rows[0] || null; },
     async getUserById(id) { const { rows } = await q("SELECT * FROM app_user WHERE id=$1", [id]); return rows[0] || null; },
     async updateUserPassword(id, password_hash) { const { rows } = await q("UPDATE app_user SET password_hash=$2 WHERE id=$1 RETURNING id", [id, password_hash]); return rows[0] || null; },
+    async listUsers(consultancy_id) { const { rows } = await q("SELECT * FROM app_user WHERE consultancy_id=$1 ORDER BY created_at ASC", [consultancy_id]); return rows; },
+    async deleteUser(consultancy_id, id) { const { rows } = await q("DELETE FROM app_user WHERE id=$1 AND consultancy_id=$2 RETURNING id", [id, consultancy_id]); return rows[0] || null; },
+    async countOwners(consultancy_id) { const { rows } = await q("SELECT count(*)::int AS n FROM app_user WHERE consultancy_id=$1 AND role='owner'", [consultancy_id]); return rows[0].n; },
     async getConsultancy(id) { const { rows } = await q("SELECT * FROM consultancy WHERE id=$1", [id]); return rows[0] || null; },
 
     // ---- recuperación de contraseña por correo ----
