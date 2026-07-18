@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Grid3x3, FileText, Plus, Download, AlertTriangle, Check, ChevronRight, Info, Scale,
   Copy, RefreshCw, LogIn, Share2, ArrowLeft, Send, Loader2, Users, Zap, FileDown, Menu, Home as HomeIcon,
-  UserPlus, Trash2
+  UserPlus, Trash2, Pencil, X
 } from "lucide-react";
 
 /* ================================================================== *
@@ -248,6 +248,24 @@ function makeApiStore(base) {
       if (!r.ok) throw new Error("No se pudo obtener el perfil.");
       return r.json();
     },
+    async updateMyName(display_name) {
+      const r = await authFetch("/me", { method: "PATCH", body: JSON.stringify({ display_name }) });
+      if (!r.ok) {
+        let msg = "No se pudo guardar el nombre.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+      return (await r.json()).user;
+    },
+    async updateUserName(id, display_name) {
+      const r = await authFetch(`/users/${id}`, { method: "PATCH", body: JSON.stringify({ display_name }) });
+      if (!r.ok) {
+        let msg = "No se pudo guardar el nombre.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+      return (await r.json()).user;
+    },
     async listUsers() {
       const r = await authFetch("/users");
       if (!r.ok) {
@@ -476,14 +494,13 @@ export default function App() {
   const logout = () => { try { store.setToken && store.setToken(null); } catch { } setAuthed(false); setView("home"); };
   const canModels = (store.mode === "api" && authed) || (store.mode === "local" && store.persistent);
   const [pwOpen, setPwOpen] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
   const [resetToken, setResetToken] = useState(null);
   const [me, setMe] = useState(null);
 
-  // Perfil del usuario autenticado (para saber su rol: propietario o consultor).
-  useEffect(() => {
-    if (store.mode === "api" && authed) { store.me().then(setMe).catch(() => setMe(null)); }
-    else { setMe(null); }
-  }, [authed]);
+  // Perfil del usuario autenticado (para saber su rol y su nombre).
+  const refreshMe = () => { if (store.mode === "api" && authed) { store.me().then(setMe).catch(() => setMe(null)); } else { setMe(null); } };
+  useEffect(refreshMe, [authed]);
 
   // Si se llega desde el enlace del correo de recuperación (?reset_token=...),
   // abre directamente la pantalla de "nueva contraseña" y limpia la URL.
@@ -521,6 +538,7 @@ export default function App() {
               ...(canModels ? [{ key: "models", label: "Mis modelos", icon: Grid3x3, onClick: () => setView("models") }] : []),
               { key: "home", label: "Inicio", icon: HomeIcon, onClick: () => setView("home") },
               ...(store.mode === "api" && authed && me && me.user && me.user.role === "owner" ? [{ key: "users", label: "Usuarios", icon: Users, onClick: () => setView("users") }] : []),
+              ...(store.mode === "api" && authed ? [{ key: "name", label: "Editar mi nombre", icon: Pencil, onClick: () => setNameOpen(true) }] : []),
               ...(store.mode === "api" && authed ? [{ key: "pw", label: "Cambiar contraseña", icon: Scale, onClick: () => setPwOpen(true) }] : []),
               ...(store.mode === "api" && authed ? [{ key: "logout", label: "Cerrar sesión", icon: LogIn, danger: true, onClick: logout }] : []),
             ]} />
@@ -550,6 +568,7 @@ export default function App() {
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
       {pwOpen && <PasswordModal onClose={() => setPwOpen(false)} />}
+      {nameOpen && <NameModal current={me && me.user && me.user.display_name} onClose={() => { setNameOpen(false); refreshMe(); }} />}
     </div>
   );
 }
@@ -632,6 +651,52 @@ function PasswordModal({ onClose }) {
             {field("Contraseña actual", current, setCurrent, "••••••••")}
             {field("Nueva contraseña", next, setNext, "Mínimo 8 caracteres")}
             {field("Repite la nueva contraseña", repeat, setRepeat, "••••••••")}
+            {err && <div style={{ fontSize: 13, color: C.crit, marginBottom: 12 }}>{err}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
+              <PrimaryBtn onClick={onClose} ghost>Cancelar</PrimaryBtn>
+              <PrimaryBtn onClick={submit} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : null} {busy ? "Guardando…" : "Guardar"}</PrimaryBtn>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------ Editar mi nombre ------------------------------ */
+function NameModal({ onClose, current }) {
+  const [name, setName] = useState(current || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState(false);
+  const submit = async () => {
+    setErr("");
+    if (!name.trim()) { setErr("Escribe un nombre."); return; }
+    setBusy(true);
+    try { await store.updateMyName(name.trim()); setOk(true); }
+    catch (e) { setErr(e.message || "No se pudo guardar el nombre."); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 22, width: "100%", maxWidth: 400, boxShadow: "0 18px 50px rgba(0,0,0,0.25)" }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 4 }}>Editar mi nombre</div>
+        {ok ? (
+          <div>
+            <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: hexA(C.low, 0.12), border: `1px solid ${hexA(C.low, 0.5)}`, borderRadius: 9, padding: "12px 14px", margin: "10px 0 16px" }}>
+              <Check size={18} color={C.low} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: 13.5, color: C.ink }}>Nombre actualizado.</span>
+            </div>
+            <div style={{ textAlign: "right" }}><PrimaryBtn onClick={onClose}>Entendido</PrimaryBtn></div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12.5, color: C.slate, margin: "2px 0 16px" }}>Este es el nombre que verán el resto de usuarios de tu consultora.</div>
+            <label style={{ display: "block", marginBottom: 12 }}>
+              <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.slate, marginBottom: 5 }}>Nombre</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoComplete="off"
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 14 }} />
+            </label>
             {err && <div style={{ fontSize: 13, color: C.crit, marginBottom: 12 }}>{err}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
               <PrimaryBtn onClick={onClose} ghost>Cancelar</PrimaryBtn>
@@ -816,6 +881,19 @@ function UsersScreen({ onBack, meId }) {
   const [busy, setBusy] = useState(false);
   const [inviteMsg, setInviteMsg] = useState("");
   const [delBusy, setDelBusy] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editValue, setEditValue] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+
+  const startEdit = (u) => { setEditingId(u.id); setEditValue(u.display_name || ""); setErr(""); };
+  const cancelEdit = () => { setEditingId(null); setEditValue(""); };
+  const saveEdit = async (id) => {
+    if (!editValue.trim()) { setErr("El nombre no puede estar vacío."); return; }
+    setEditBusy(true); setErr("");
+    try { await store.updateUserName(id, editValue.trim()); setEditingId(null); await load(); }
+    catch (e) { setErr(e.message || "No se pudo guardar el nombre."); }
+    finally { setEditBusy(false); }
+  };
 
   const load = async () => { setErr(""); try { setList(await store.listUsers()); } catch (e) { setErr(e.message || "No se pudo cargar la lista de usuarios."); } };
   useEffect(() => { load(); }, []);
@@ -864,15 +942,40 @@ function UsersScreen({ onBack, meId }) {
             {list.map((u) => (
               <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 10 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{u.display_name || u.email}</div>
-                  <div style={{ fontSize: 12, color: C.slate }}>{u.email} · {u.role === "owner" ? "Propietario/a" : "Consultor/a"}</div>
+                  {editingId === u.id ? (
+                    <input value={editValue} onChange={(e) => setEditValue(e.target.value)} autoFocus autoComplete="off"
+                      onKeyDown={(e) => { if (e.key === "Enter") saveEdit(u.id); if (e.key === "Escape") cancelEdit(); }}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "6px 9px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 13.5, fontWeight: 700 }} />
+                  ) : (
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{u.display_name || u.email}</div>
+                  )}
+                  <div style={{ fontSize: 12, color: C.slate, marginTop: 2 }}>{u.email} · {u.role === "owner" ? "Propietario/a" : "Consultor/a"}</div>
                 </div>
-                {u.id !== meId && (
-                  <button onClick={() => remove(u.id)} disabled={delBusy === u.id} title="Eliminar acceso"
-                    style={{ border: "none", background: "transparent", color: C.crit, cursor: "pointer", padding: 6, display: "grid", placeItems: "center" }}>
-                    {delBusy === u.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
-                  </button>
-                )}
+                <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                  {editingId === u.id ? (
+                    <>
+                      <button onClick={() => saveEdit(u.id)} disabled={editBusy} title="Guardar nombre"
+                        style={{ border: "none", background: "transparent", color: C.low, cursor: "pointer", padding: 6, display: "grid", placeItems: "center" }}>
+                        {editBusy ? <Loader2 size={16} className="spin" /> : <Check size={16} />}
+                      </button>
+                      <button onClick={cancelEdit} disabled={editBusy} title="Cancelar"
+                        style={{ border: "none", background: "transparent", color: C.slate, cursor: "pointer", padding: 6, display: "grid", placeItems: "center" }}>
+                        <X size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => startEdit(u)} title="Editar nombre"
+                      style={{ border: "none", background: "transparent", color: C.action, cursor: "pointer", padding: 6, display: "grid", placeItems: "center" }}>
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                  {u.id !== meId && (
+                    <button onClick={() => remove(u.id)} disabled={delBusy === u.id} title="Eliminar acceso"
+                      style={{ border: "none", background: "transparent", color: C.crit, cursor: "pointer", padding: 6, display: "grid", placeItems: "center" }}>
+                      {delBusy === u.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
             {!list.length && <div style={{ fontSize: 13, color: C.slate }}>No hay usuarios.</div>}
