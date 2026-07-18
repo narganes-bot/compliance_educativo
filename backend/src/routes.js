@@ -1,12 +1,13 @@
 "use strict";
 const express = require("express");
 const { fail, signToken, requireAuth, asyncH } = require("./middleware");
-const { checkPassword, hashPassword } = require("./config");
+const { checkPassword, hashPassword, genToken, hashToken } = require("./config");
 const E = require("./engine/engine.js");
 const IO = require("./engine/engine-io.js");
 const { buildDocxBuffer, safeName } = require("./docgen.js");
 const { createRateLimiter } = require("./rateLimit");
 const { config } = require("./config");
+const { sendMail, passwordResetEmailHtml } = require("./mailer.js");
 
 // Mapea el centro almacenado al formato que consume el motor.
 const toEngineCenter = (c) => ({ name: c.name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "", ccaa: c.ccaa || "" });
@@ -37,6 +38,7 @@ function buildRouter(store) {
   // Registro de auditoría tolerante a fallos: nunca rompe la petición.
   const audit = async (cid, entry) => { try { if (cid) await store.addAudit(cid, entry); } catch (e) { console.error("audit:", e.message); } };
   const publicLimiter = createRateLimiter(config.rateLimits.participant);
+  const authLimiter = createRateLimiter(config.rateLimits.auth);
 
   /* ------------------------------ auth ------------------------------ */
   r.post("/auth/login", asyncH(async (req, res) => {
@@ -72,6 +74,45 @@ function buildRouter(store) {
     }
     await store.updateUserPassword(user.id, await hashPassword(next));
     await audit(req.auth.consultancyId, { actor_user_id: user.id, action: "password_changed", ip: ipOf(req) });
+    res.json({ ok: true });
+  }));
+
+  // Solicitar un enlace de restablecimiento por correo. La respuesta es SIEMPRE
+  // la misma exista o no el correo, para no revelar qué cuentas están registradas.
+  r.post("/auth/forgot-password", authLimiter, asyncH(async (req, res) => {
+    const email = ((req.body && req.body.email) || "").trim();
+    if (!email) fail(400, "missing_fields", "Indica tu correo.");
+    const user = await store.findUserByEmail(email);
+    if (user) {
+      const rawToken = genToken();
+      const expiresAt = new Date(Date.now() + config.passwordResetExpiresMinutes * 60000).toISOString();
+      await store.invalidateUserResetTokens(user.id); // cualquier enlace anterior deja de servir
+      await store.createPasswordResetToken(user.id, hashToken(rawToken), expiresAt);
+      const link = `${config.frontendUrl.replace(/\/$/, "")}/?reset_token=${rawToken}`;
+      try {
+        await sendMail({ to: user.email, subject: "Restablecer tu contraseña · Forentia 360", html: passwordResetEmailHtml(link) });
+      } catch (e) { console.error("mailer forgot-password:", e.message); }
+      await audit(user.consultancy_id, { actor_user_id: user.id, action: "password_reset_requested", ip: ipOf(req) });
+    }
+    res.json({ ok: true, message: "Si el correo está registrado, te hemos enviado un enlace." });
+  }));
+
+  // Confirmar el restablecimiento con el token recibido por correo.
+  r.post("/auth/reset-password", authLimiter, asyncH(async (req, res) => {
+    const token = req.body && req.body.token;
+    const next = req.body && req.body.next;
+    if (!token || !next) fail(400, "missing_fields", "Faltan datos.");
+    if (String(next).length < 8) fail(400, "weak_password", "La nueva contraseña debe tener al menos 8 caracteres.");
+    const row = await store.getPasswordResetToken(hashToken(token));
+    if (!row || row.used_at || new Date(row.expires_at) < new Date()) {
+      fail(400, "invalid_token", "El enlace no es válido o ha caducado. Solicita uno nuevo.");
+    }
+    const user = await store.getUserById(row.user_id);
+    if (!user) fail(400, "invalid_token", "El enlace no es válido.");
+    await store.updateUserPassword(user.id, await hashPassword(next));
+    await store.markPasswordResetTokenUsed(row.id);
+    await store.invalidateUserResetTokens(user.id);
+    await audit(user.consultancy_id, { actor_user_id: user.id, action: "password_reset_completed", ip: ipOf(req) });
     res.json({ ok: true });
   }));
 
