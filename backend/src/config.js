@@ -18,6 +18,7 @@ const config = {
   mailFrom: process.env.MAIL_FROM || "onboarding@resend.dev",
   frontendUrl: process.env.FRONTEND_URL || "",
   passwordResetExpiresMinutes: parseInt(process.env.PASSWORD_RESET_EXPIRES_MIN || "60", 10),
+  inviteExpiresMinutes: parseInt(process.env.INVITE_EXPIRES_MIN || String(7 * 24 * 60), 10), // 7 días
 };
 
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
