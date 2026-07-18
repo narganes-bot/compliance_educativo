@@ -7,7 +7,7 @@ const IO = require("./engine/engine-io.js");
 const { buildDocxBuffer, safeName } = require("./docgen.js");
 const { createRateLimiter } = require("./rateLimit");
 const { config } = require("./config");
-const { sendMail, passwordResetEmailHtml } = require("./mailer.js");
+const { sendMail, passwordResetEmailHtml, inviteUserEmailHtml } = require("./mailer.js");
 
 // Mapea el centro almacenado al formato que consume el motor.
 const toEngineCenter = (c) => ({ name: c.name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "", ccaa: c.ccaa || "" });
@@ -39,6 +39,8 @@ function buildRouter(store) {
   const audit = async (cid, entry) => { try { if (cid) await store.addAudit(cid, entry); } catch (e) { console.error("audit:", e.message); } };
   const publicLimiter = createRateLimiter(config.rateLimits.participant);
   const authLimiter = createRateLimiter(config.rateLimits.auth);
+  // Solo el propietario de la consultora puede invitar o eliminar usuarios.
+  const requireOwner = (req, res, next) => { if (req.auth.role !== "owner") fail(403, "forbidden", "Solo el propietario de la consultora puede gestionar usuarios."); next(); };
 
   /* ------------------------------ auth ------------------------------ */
   r.post("/auth/login", asyncH(async (req, res) => {
@@ -113,6 +115,50 @@ function buildRouter(store) {
     await store.markPasswordResetTokenUsed(row.id);
     await store.invalidateUserResetTokens(user.id);
     await audit(user.consultancy_id, { actor_user_id: user.id, action: "password_reset_completed", ip: ipOf(req) });
+    res.json({ ok: true });
+  }));
+
+  /* ------------------------------ usuarios (equipo de la consultora) ------------------------------ */
+  // Lista los usuarios de la propia consultora. Solo el propietario.
+  r.get("/users", requireAuth, requireOwner, asyncH(async (req, res) => {
+    const users = await store.listUsers(req.auth.consultancyId);
+    res.json({ users: users.map((u) => ({ id: u.id, email: u.email, display_name: u.display_name, role: u.role, created_at: u.created_at })) });
+  }));
+
+  // Invita a un nuevo usuario: se crea con una contraseña provisional inutilizable
+  // y se le envía un correo (mismo mecanismo que "olvidé mi contraseña") para que
+  // fije él mismo su propia contraseña. Solo el propietario puede invitar.
+  r.post("/users", requireAuth, requireOwner, asyncH(async (req, res) => {
+    const email = ((req.body && req.body.email) || "").trim().toLowerCase();
+    const display_name = ((req.body && req.body.display_name) || "").trim() || null;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, "invalid_email", "Indica un correo válido.");
+    const existing = await store.findUserByEmail(email);
+    if (existing) fail(409, "already_exists", "Ya existe un usuario con ese correo.");
+    const unusablePassword = genToken(); // nunca se comunica; el usuario fija la suya vía el enlace
+    const newUser = await store.createUser(req.auth.consultancyId, { email, password_hash: await hashPassword(unusablePassword), display_name, role: "consultant" });
+    const rawToken = genToken();
+    const expiresAt = new Date(Date.now() + config.inviteExpiresMinutes * 60000).toISOString();
+    await store.createPasswordResetToken(newUser.id, hashToken(rawToken), expiresAt);
+    const link = `${config.frontendUrl.replace(/\/$/, "")}/?reset_token=${rawToken}`;
+    try {
+      const consultancy = await store.getConsultancy(req.auth.consultancyId);
+      await sendMail({ to: newUser.email, subject: "Te han invitado a Forentia 360", html: inviteUserEmailHtml(link, consultancy && consultancy.name) });
+    } catch (e) { console.error("mailer invite-user:", e.message); }
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "create_user", entity: "app_user", entity_id: newUser.id, ip: ipOf(req) });
+    res.status(201).json({ user: { id: newUser.id, email: newUser.email, display_name: newUser.display_name, role: newUser.role } });
+  }));
+
+  // Elimina el acceso de un usuario. No se puede eliminar a uno mismo ni al único propietario.
+  r.delete("/users/:id", requireAuth, requireOwner, asyncH(async (req, res) => {
+    if (req.params.id === req.auth.userId) fail(400, "cannot_delete_self", "No puedes eliminar tu propio usuario.");
+    const target = await store.getUserById(req.params.id);
+    if (!target || target.consultancy_id !== req.auth.consultancyId) fail(404, "not_found", "Usuario no encontrado.");
+    if (target.role === "owner") {
+      const owners = await store.countOwners(req.auth.consultancyId);
+      if (owners <= 1) fail(409, "last_owner", "No puedes eliminar al único propietario de la consultora.");
+    }
+    await store.deleteUser(req.auth.consultancyId, req.params.id);
+    await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "delete_user", entity: "app_user", entity_id: req.params.id, ip: ipOf(req) });
     res.json({ ok: true });
   }));
 
