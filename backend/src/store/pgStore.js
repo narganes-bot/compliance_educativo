@@ -32,6 +32,15 @@ function createPgStore(connectionString) {
     async updateUserPassword(id, password_hash) { const { rows } = await q("UPDATE app_user SET password_hash=$2 WHERE id=$1 RETURNING id", [id, password_hash]); return rows[0] || null; },
     async getConsultancy(id) { const { rows } = await q("SELECT * FROM consultancy WHERE id=$1", [id]); return rows[0] || null; },
 
+    // ---- recuperación de contraseña por correo ----
+    async createPasswordResetToken(userId, tokenHash, expiresAt) {
+      const { rows } = await q("INSERT INTO password_reset_token(user_id,token_hash,expires_at) VALUES($1,$2,$3) RETURNING *", [userId, tokenHash, expiresAt]);
+      return rows[0];
+    },
+    async getPasswordResetToken(tokenHash) { const { rows } = await q("SELECT * FROM password_reset_token WHERE token_hash=$1", [tokenHash]); return rows[0] || null; },
+    async markPasswordResetTokenUsed(id) { await q("UPDATE password_reset_token SET used_at=now() WHERE id=$1", [id]); },
+    async invalidateUserResetTokens(userId) { await q("UPDATE password_reset_token SET used_at=now() WHERE user_id=$1 AND used_at IS NULL", [userId]); },
+
     async createCenter(cid, d) {
       return withTenant(cid, async (c) => (await c.query(
         "INSERT INTO center(consultancy_id,name,ownership,stages,num_students,ccaa) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
