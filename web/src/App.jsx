@@ -137,15 +137,6 @@ function makeApiStore(base) {
       if (!r.ok) throw new Error("No se pudo obtener el perfil.");
       return r.json();
     },
-    async updateMyName(display_name) {
-      const r = await authFetch("/me", { method: "PATCH", body: JSON.stringify({ display_name }) });
-      if (!r.ok) {
-        let msg = "No se pudo guardar el nombre.";
-        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
-        throw new Error(msg);
-      }
-      return (await r.json()).user;
-    },
     async updateUserName(id, display_name) {
       const r = await authFetch(`/users/${id}`, { method: "PATCH", body: JSON.stringify({ display_name }) });
       if (!r.ok) {
@@ -383,7 +374,6 @@ export default function App() {
   const logout = () => { try { store.setToken && store.setToken(null); } catch { } setAuthed(false); setView("home"); };
   const canModels = (store.mode === "api" && authed) || (store.mode === "local" && store.persistent);
   const [pwOpen, setPwOpen] = useState(false);
-  const [nameOpen, setNameOpen] = useState(false);
   const [resetToken, setResetToken] = useState(null);
   const [me, setMe] = useState(null);
 
@@ -424,10 +414,9 @@ export default function App() {
           {store.mode === "local" && !store.persistent && <span title="Sin almacenamiento persistente en este entorno" style={{ fontSize: 11, color: C.med, fontFamily: mono, display: "inline-flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> modo local</span>}
           {(canModels || (store.mode === "api" && authed)) && (
             <HeaderMenu items={[
-              ...(canModels ? [{ key: "models", label: "Mis modelos", icon: Grid3x3, onClick: () => setView("models") }] : []),
+              ...(canModels ? [{ key: "models", label: "Modelos de prevención", icon: Grid3x3, onClick: () => setView("models") }] : []),
               { key: "home", label: "Inicio", icon: HomeIcon, onClick: () => setView("home") },
               ...(store.mode === "api" && authed && me && me.user && me.user.role === "owner" ? [{ key: "users", label: "Usuarios", icon: Users, onClick: () => setView("users") }] : []),
-              ...(store.mode === "api" && authed ? [{ key: "name", label: "Editar mi nombre", icon: Pencil, onClick: () => setNameOpen(true) }] : []),
               ...(store.mode === "api" && authed ? [{ key: "pw", label: "Cambiar contraseña", icon: Scale, onClick: () => setPwOpen(true) }] : []),
               ...(store.mode === "api" && authed ? [{ key: "logout", label: "Cerrar sesión", icon: LogIn, danger: true, onClick: logout }] : []),
             ]} />
@@ -457,7 +446,6 @@ export default function App() {
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
       {pwOpen && <PasswordModal onClose={() => setPwOpen(false)} />}
-      {nameOpen && <NameModal current={me && me.user && me.user.display_name} onClose={() => { setNameOpen(false); refreshMe(); }} />}
     </div>
   );
 }
@@ -552,52 +540,6 @@ function PasswordModal({ onClose }) {
   );
 }
 
-/* ------------------------------ Editar mi nombre ------------------------------ */
-function NameModal({ onClose, current }) {
-  const [name, setName] = useState(current || "");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [ok, setOk] = useState(false);
-  const submit = async () => {
-    setErr("");
-    if (!name.trim()) { setErr("Escribe un nombre."); return; }
-    setBusy(true);
-    try { await store.updateMyName(name.trim()); setOk(true); }
-    catch (e) { setErr(e.message || "No se pudo guardar el nombre."); }
-    finally { setBusy(false); }
-  };
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 22, width: "100%", maxWidth: 400, boxShadow: "0 18px 50px rgba(0,0,0,0.25)" }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: C.navy, marginBottom: 4 }}>Editar mi nombre</div>
-        {ok ? (
-          <div>
-            <div style={{ display: "flex", gap: 9, alignItems: "flex-start", background: hexA(C.low, 0.12), border: `1px solid ${hexA(C.low, 0.5)}`, borderRadius: 9, padding: "12px 14px", margin: "10px 0 16px" }}>
-              <Check size={18} color={C.low} style={{ flexShrink: 0, marginTop: 1 }} />
-              <span style={{ fontSize: 13.5, color: C.ink }}>Nombre actualizado.</span>
-            </div>
-            <div style={{ textAlign: "right" }}><PrimaryBtn onClick={onClose}>Entendido</PrimaryBtn></div>
-          </div>
-        ) : (
-          <div>
-            <div style={{ fontSize: 12.5, color: C.slate, margin: "2px 0 16px" }}>Este es el nombre que verán el resto de usuarios de tu consultora.</div>
-            <label style={{ display: "block", marginBottom: 12 }}>
-              <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.slate, marginBottom: 5 }}>Nombre</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoComplete="off"
-                style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 14 }} />
-            </label>
-            {err && <div style={{ fontSize: 13, color: C.crit, marginBottom: 12 }}>{err}</div>}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 4 }}>
-              <PrimaryBtn onClick={onClose} ghost>Cancelar</PrimaryBtn>
-              <PrimaryBtn onClick={submit} disabled={busy}>{busy ? <Loader2 size={16} className="spin" /> : null} {busy ? "Guardando…" : "Guardar"}</PrimaryBtn>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ------------------------------ Home ------------------------------ */
 function Home({ go }) {
   const SectionLabel = ({ children }) => <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: C.slate, marginBottom: 10 }}>{children}</div>;
@@ -614,7 +556,7 @@ function Home({ go }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 28 }}>
         <ChoiceCard icon={Grid3x3} title="Continuar un modelo" primary
           desc="Abre uno de tus modelos guardados para seguir recogiendo entrevistas, ajustar la matriz o descargar el informe."
-          cta="Ver mis modelos" onClick={() => go("models")} />
+          cta="Ver modelos de prevención" onClick={() => go("models")} />
         <ChoiceCard icon={Plus} title="Nuevo modelo"
           desc="Crea la sala de un centro nuevo. Obtendrás un código para compartir con el equipo y el panel del modelo."
           cta="Crear modelo" onClick={() => go("create")} />
@@ -1143,7 +1085,7 @@ function Models({ onOpen, onBack }) {
   return (
     <div><BackLink onClick={onBack} />
       <Card>
-        <H sub="Tus centros y modelos guardados. Ábrelos para seguir trabajando o elimínalos.">Mis modelos</H>
+        <H sub="Tus centros y modelos guardados. Ábrelos para seguir trabajando o elimínalos.">Modelos de prevención</H>
         {rows === null ? (
           <div style={{ display: "flex", gap: 10, alignItems: "center", color: C.slate, fontSize: 13.5 }}><Loader2 size={16} className="spin" /> Cargando…</div>
         ) : !rows.length ? (
