@@ -193,8 +193,36 @@ function computeCoverage(interviews) {
   });
 }
 
+// ---------------------------------------------------------------------
+// RD 393/2007, de 23 de marzo, Norma Básica de Autoprotección de los
+// centros, establecimientos y dependencias dedicados a actividades que
+// puedan dar origen a situaciones de emergencia (art. 2 y anexo I).
+// Aplica cuando la ocupación total del centro es igual o superior a 2.000
+// personas, o cuando la altura de evacuación es igual o superior a 28 m
+// (aprox. 10 plantas). La ocupación total suma alumnado, personal docente,
+// personal no docente y otras personas habituales en el centro.
+// ---------------------------------------------------------------------
+const RD393_OCCUPANCY_THRESHOLD = 2000;
+const RD393_HEIGHT_THRESHOLD_M = 28;
+function rd393Assessment(center) {
+  center = center || {};
+  const n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
+  const students = n(center.num_students);
+  const teaching = n(center.num_teaching_staff);
+  const nonTeaching = n(center.num_non_teaching_staff);
+  const others = n(center.num_other_people);
+  const occupancy = students + teaching + nonTeaching + others;
+  const byOccupancy = occupancy >= RD393_OCCUPANCY_THRESHOLD;
+  const byHeight = !!center.height_ge_28m;
+  const reasons = [];
+  if (byOccupancy) reasons.push(`ocupación total de ${occupancy} personas (≥ ${RD393_OCCUPANCY_THRESHOLD})`);
+  if (byHeight) reasons.push(`altura de evacuación ≥ ${RD393_HEIGHT_THRESHOLD_M} m (10 plantas)`);
+  return { occupancy, byOccupancy, byHeight, applies: byOccupancy || byHeight, reasons };
+}
+
 module.exports = {
   LAW_CATALOG, LAW_LEVELS, lawShort, lawLabel, ROLES, roleLabel, roleShort,
   RISKS, QUESTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
+  rd393Assessment, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
 };
