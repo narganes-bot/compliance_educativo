@@ -10,7 +10,23 @@ const { config } = require("./config");
 const { sendMail, passwordResetEmailHtml, inviteUserEmailHtml } = require("./mailer.js");
 
 // Mapea el centro almacenado al formato que consume el motor.
-const toEngineCenter = (c) => ({ name: c.name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "", ccaa: c.ccaa || "" });
+const toEngineCenter = (c) => {
+  const center = {
+    name: c.name, tipo: c.ownership, etapas: c.stages || "",
+    alumnos: c.num_students != null ? String(c.num_students) : "",
+    ccaa: c.ccaa || "",
+    docentes: c.num_teaching_staff != null ? String(c.num_teaching_staff) : "",
+    noDocentes: c.num_non_teaching_staff != null ? String(c.num_non_teaching_staff) : "",
+    otras: c.num_other_people != null ? String(c.num_other_people) : "",
+    alturaGe28m: !!c.height_ge_28m,
+  };
+  center.rd393 = E.rd393Assessment({
+    num_students: c.num_students, num_teaching_staff: c.num_teaching_staff,
+    num_non_teaching_staff: c.num_non_teaching_staff, num_other_people: c.num_other_people,
+    height_ge_28m: c.height_ge_28m,
+  });
+  return center;
+};
 
 // Sanea el estado del modelo antes de guardarlo: solo admite sobrescrituras de
 // P e I (enteros 1..5) por riesgo (Rxx) y un campo de notas opcional. Evita
@@ -180,10 +196,19 @@ function buildRouter(store) {
   }));
 
   r.post("/centers", requireAuth, asyncH(async (req, res) => {
-    const { name, ownership, stages, num_students, ccaa } = req.body || {};
+    const { name, ownership, stages, num_students, ccaa, num_teaching_staff, num_non_teaching_staff, num_other_people, height_ge_28m } = req.body || {};
     if (!name) fail(400, "missing_fields", "El nombre del centro es obligatorio.");
     if (!["publica", "concertada", "privada"].includes(ownership)) fail(400, "invalid_ownership", "Titularidad no válida.");
-    const center = await store.createCenter(req.auth.consultancyId, { name, ownership, stages, num_students, ccaa });
+    const posInt = (v) => { if (v === undefined || v === null || v === "") return null; const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : null; };
+    const center = await store.createCenter(req.auth.consultancyId, {
+      name, ownership, stages,
+      num_students: posInt(num_students),
+      ccaa,
+      num_teaching_staff: posInt(num_teaching_staff),
+      num_non_teaching_staff: posInt(num_non_teaching_staff),
+      num_other_people: posInt(num_other_people),
+      height_ge_28m: !!height_ge_28m,
+    });
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "create_center", entity: "center", entity_id: center.id, ip: ipOf(req) });
     res.status(201).json({ center });
   }));
@@ -345,6 +370,30 @@ function buildRouter(store) {
     }
   }));
 
+  // Público: informe .docx completo para el modo rápido/demo. No hay sala ni
+  // datos guardados en la base de datos — el centro, las entrevistas y los
+  // ajustes manuales llegan enteros en la petición y se descartan en cuanto
+  // se genera el documento (nada se persiste). Reutiliza el mismo generador
+  // (docgen.js) que el informe del panel de sala, para que el resultado sea
+  // idéntico en todos los modos. Limitado por IP para evitar abuso, ya que
+  // no requiere haber iniciado sesión.
+  r.post("/document", publicLimiter, asyncH(async (req, res) => {
+    const body = req.body || {};
+    if (Array.isArray(body.interviews) && body.interviews.length > 60) {
+      fail(400, "too_many_interviews", "Demasiadas entrevistas para generarlo en modo rápido. Usa una sala guardada para diagnósticos grandes.");
+    }
+    const { data } = IO.validatePayload(body);
+    if (!data || !data.center.name) fail(400, "missing_fields", "Indica el nombre del centro.");
+    const buffer = await buildDocxBuffer(
+      data.center,
+      data.interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })),
+      data.overrides
+    );
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(data.center.name)}.docx"`);
+    res.send(buffer);
+  }));
+
   // Autenticado: editar una entrevista ya enviada (respuestas, comentarios, rol, alias)
   r.put("/rooms/:code/interview/:id", requireAuth, asyncH(async (req, res) => {
     const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
@@ -393,16 +442,28 @@ function buildRouter(store) {
     if (!room || !room.center) fail(404, "not_found", "Sala no encontrada.");
     const b = req.body || {};
     const patch = {};
+    const posInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : null; };
     if (typeof b.name === "string" && b.name.trim()) patch.name = b.name.trim().slice(0, 200);
     if (b.ownership !== undefined) { if (!["publica", "concertada", "privada"].includes(b.ownership)) fail(400, "invalid_ownership", "Titularidad no válida."); patch.ownership = b.ownership; }
     if (b.stages !== undefined) patch.stages = b.stages ? String(b.stages).slice(0, 300) : null;
-    if (b.num_students !== undefined) { const n = parseInt(b.num_students, 10); patch.num_students = Number.isFinite(n) ? n : null; }
+    if (b.num_students !== undefined) patch.num_students = posInt(b.num_students);
     if (b.ccaa !== undefined) patch.ccaa = b.ccaa ? String(b.ccaa).slice(0, 120) : null;
+    if (b.num_teaching_staff !== undefined) patch.num_teaching_staff = posInt(b.num_teaching_staff);
+    if (b.num_non_teaching_staff !== undefined) patch.num_non_teaching_staff = posInt(b.num_non_teaching_staff);
+    if (b.num_other_people !== undefined) patch.num_other_people = posInt(b.num_other_people);
+    if (b.height_ge_28m !== undefined) patch.height_ge_28m = !!b.height_ge_28m;
     if (!Object.keys(patch).length) fail(400, "no_changes", "No hay cambios que guardar.");
     const updated = await store.updateCenter(req.auth.consultancyId, room.center.id, patch);
     if (!updated) fail(404, "not_found", "Centro no encontrado.");
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "update_center", entity: "center", entity_id: room.center.id, ip: ipOf(req) });
-    res.json({ center: { id: updated.id, name: updated.name, ownership: updated.ownership, stages: updated.stages, num_students: updated.num_students, ccaa: updated.ccaa } });
+    res.json({
+      center: {
+        id: updated.id, name: updated.name, ownership: updated.ownership, stages: updated.stages,
+        num_students: updated.num_students, ccaa: updated.ccaa,
+        num_teaching_staff: updated.num_teaching_staff, num_non_teaching_staff: updated.num_non_teaching_staff,
+        num_other_people: updated.num_other_people, height_ge_28m: updated.height_ge_28m,
+      },
+    });
   }));
 
   // Autenticado: informe .docx completo (docgen.js) por código de sala.
