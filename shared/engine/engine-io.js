@@ -43,13 +43,25 @@ function normalizeInterview(iv) {
 
 function normalizeCenter(c) {
   c = c || {};
-  return {
+  const center = {
     name: (c.name || "").toString().slice(0, 200),
     tipo: OWNERSHIP.has(c.tipo) ? c.tipo : (OWNERSHIP.has(c.ownership) ? c.ownership : "concertada"),
     etapas: (c.etapas || c.stages || "").toString().slice(0, 300),
     alumnos: (c.alumnos != null ? c.alumnos : c.num_students != null ? c.num_students : "").toString().slice(0, 20),
     ccaa: (c.ccaa || "").toString().slice(0, 120),
+    docentes: (c.docentes != null ? c.docentes : c.num_teaching_staff != null ? c.num_teaching_staff : "").toString().slice(0, 20),
+    noDocentes: (c.noDocentes != null ? c.noDocentes : c.num_non_teaching_staff != null ? c.num_non_teaching_staff : "").toString().slice(0, 20),
+    otras: (c.otras != null ? c.otras : c.num_other_people != null ? c.num_other_people : "").toString().slice(0, 20),
+    alturaGe28m: !!(c.alturaGe28m != null ? c.alturaGe28m : c.altura28 != null ? c.altura28 : c.height_ge_28m),
   };
+  // RD 393/2007: se calcula aquí, sobre los mismos datos, para que la app y el
+  // futuro informe Word muestren siempre el mismo resultado (fuente única).
+  center.rd393 = E.rd393Assessment({
+    num_students: center.alumnos, num_teaching_staff: center.docentes,
+    num_non_teaching_staff: center.noDocentes, num_other_people: center.otras,
+    height_ge_28m: center.alturaGe28m,
+  });
+  return center;
 }
 
 // Normaliza las sobrescrituras manuales: solo códigos de riesgo válidos y
