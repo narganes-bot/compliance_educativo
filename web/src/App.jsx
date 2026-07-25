@@ -16,6 +16,7 @@ const {
   bandOf, BAND_LABEL,
   computeRisks, computeCoverage,
   CONSULTANT_ROLE,
+  rd393Assessment,
 } = ENGINE;
 
 /* ================================================================== *
@@ -35,6 +36,16 @@ const C = {
 };
 const mono = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const sans = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+// Comunidades y ciudades autónomas, para poder tener en cuenta la normativa
+// autonómica de protección de la infancia y de autoprotección de cada centro.
+const CCAA_LIST = [
+  "Andalucía", "Aragón", "Principado de Asturias", "Illes Balears", "Canarias",
+  "Cantabria", "Castilla-La Mancha", "Castilla y León", "Catalunya", "Extremadura",
+  "Galicia", "La Rioja", "Comunidad de Madrid", "Región de Murcia",
+  "Comunidad Foral de Navarra", "País Vasco", "Comunitat Valenciana",
+  "Ceuta", "Melilla",
+];
 
 /* ------------------------------- motor -------------------------------- */
 // Todo lo anterior (leyes, roles, preguntas, riesgos, cálculo de P/I) viene
@@ -194,7 +205,17 @@ function makeApiStore(base) {
       }
     },
     async createRoom(center) {
-      const cr = await authFetch("/centers", { method: "POST", body: JSON.stringify({ name: center.name, ownership: center.tipo, stages: center.etapas || null, num_students: center.alumnos ? parseInt(center.alumnos, 10) : null, ccaa: center.ccaa || null }) });
+      const cr = await authFetch("/centers", {
+        method: "POST", body: JSON.stringify({
+          name: center.name, ownership: center.tipo, stages: center.etapas || null,
+          num_students: center.alumnos ? parseInt(center.alumnos, 10) : null,
+          ccaa: center.ccaa || null,
+          num_teaching_staff: center.docentes ? parseInt(center.docentes, 10) : null,
+          num_non_teaching_staff: center.noDocentes ? parseInt(center.noDocentes, 10) : null,
+          num_other_people: center.otras ? parseInt(center.otras, 10) : null,
+          height_ge_28m: !!center.altura28,
+        })
+      });
       if (!cr.ok) throw new Error("No se pudo crear el centro.");
       const created = (await cr.json()).center;
       const cp = await authFetch(`/centers/${created.id}/campaigns`, { method: "POST", body: JSON.stringify({}) });
@@ -220,7 +241,15 @@ function makeApiStore(base) {
       const r = await authFetch(`/rooms/${code}/center`, { method: "PATCH", body: JSON.stringify(patch) });
       if (!r.ok) throw new Error("No se pudieron guardar los datos del centro.");
       const j = await r.json(); const c = j.center || {};
-      return { name: c.name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "" };
+      return {
+        name: c.name, tipo: c.ownership, etapas: c.stages || "",
+        alumnos: c.num_students != null ? String(c.num_students) : "",
+        ccaa: c.ccaa || "",
+        docentes: c.num_teaching_staff != null ? String(c.num_teaching_staff) : "",
+        noDocentes: c.num_non_teaching_staff != null ? String(c.num_non_teaching_staff) : "",
+        otras: c.num_other_people != null ? String(c.num_other_people) : "",
+        altura28: !!c.height_ge_28m,
+      };
     },
     async listInterviews(code) {
       const r = await authFetch(`/rooms/${code}`);
@@ -235,7 +264,15 @@ function makeApiStore(base) {
       const j = await r.json();
       return (j.campaigns || []).map((c) => ({
         code: c.code, status: c.status, createdAt: c.created_at, interviews: Number(c.interview_count) || 0,
-        center: { name: c.center_name, tipo: c.ownership, etapas: c.stages || "", alumnos: c.num_students != null ? String(c.num_students) : "" },
+        center: {
+          name: c.center_name, tipo: c.ownership, etapas: c.stages || "",
+          alumnos: c.num_students != null ? String(c.num_students) : "",
+          ccaa: c.ccaa || "",
+          docentes: c.num_teaching_staff != null ? String(c.num_teaching_staff) : "",
+          noDocentes: c.num_non_teaching_staff != null ? String(c.num_non_teaching_staff) : "",
+          otras: c.num_other_people != null ? String(c.num_other_people) : "",
+          altura28: !!c.height_ge_28m,
+        },
       }));
     },
     async deleteModel(code) {
@@ -265,6 +302,24 @@ function makeApiStore(base) {
       const a = document.createElement("a");
       a.href = url;
       a.download = `Informe_${(centerName || "centro").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "")}.docx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    },
+    // Igual que downloadDocument, pero para el modo rápido/demo: no hay sala
+    // guardada, así que el centro y las entrevistas viajan enteros en la
+    // petición (no requiere sesión). No se guarda nada en el servidor.
+    async downloadQuickDocument(center, interviews, overrides) {
+      const r = await fetch(base + "/document", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ center, interviews, overrides: overrides || {} }) });
+      if (!r.ok) {
+        let msg = "No se pudo generar el informe.";
+        try { const j = await r.json(); if (j && j.error && j.error.message) msg = j.error.message; } catch { }
+        throw new Error(msg);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Informe_${((center && center.name) || "centro").replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "")}.docx`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
     },
@@ -817,9 +872,9 @@ function UsersScreen({ onBack, meId }) {
   );
 }
 function Create({ onDone, onBack }) {
-  const [form, setForm] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "" });
+  const [form, setForm] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false });
   const [busy, setBusy] = useState(false);
-  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
   const create = async () => {
     setBusy(true);
     try {
@@ -839,13 +894,54 @@ function Create({ onDone, onBack }) {
     </div>
   );
 }
+// Traduce el estado local del formulario (nombres "de pantalla": alumnos,
+// docentes, noDocentes, otras, altura28) al formato que espera rd393Assessment.
+function rd393FromForm(form) {
+  return rd393Assessment({
+    num_students: form.alumnos, num_teaching_staff: form.docentes,
+    num_non_teaching_staff: form.noDocentes, num_other_people: form.otras,
+    height_ge_28m: form.altura28,
+  });
+}
+
+function RD393Banner({ form }) {
+  const a = rd393FromForm(form);
+  if (!a.applies) return (
+    <div style={{ marginTop: 4, fontSize: 12, color: C.slate }}>
+      Ocupación total estimada: <b style={{ fontFamily: mono }}>{a.occupancy}</b> persona(s). No se alcanzan los umbrales del RD 393/2007 con los datos actuales.
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 8, background: hexA(C.med, 0.14), border: `1px solid ${hexA(C.med, 0.4)}`, color: "#7A5A16", fontSize: 12.5 }}>
+      <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+      <span>Con estos datos, el centro entra dentro del <b>RD 393/2007 (Norma Básica de Autoprotección)</b>: {a.reasons.join(" y ")}.</span>
+    </div>
+  );
+}
+
 function CenterFields({ form, set }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
       <label style={{ gridColumn: "1 / -1" }}><Lbl>Nombre del centro</Lbl><input style={field} value={form.name} onChange={set("name")} placeholder="p. ej. Colegio San…" /></label>
       <label><Lbl>Titularidad</Lbl><select style={field} value={form.tipo} onChange={set("tipo")}><option value="publica">Pública</option><option value="concertada">Concertada</option><option value="privada">Privada</option></select></label>
-      <label><Lbl>Nº de alumnado</Lbl><input style={field} value={form.alumnos} onChange={set("alumnos")} placeholder="p. ej. 620" inputMode="numeric" /></label>
+      <label><Lbl>Comunidad autónoma</Lbl>
+        <select style={field} value={form.ccaa || ""} onChange={set("ccaa")}>
+          <option value="">— Sin especificar —</option>
+          {CCAA_LIST.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </label>
       <label style={{ gridColumn: "1 / -1" }}><Lbl>Etapas educativas</Lbl><input style={field} value={form.etapas} onChange={set("etapas")} placeholder="Infantil, Primaria, ESO…" /></label>
+
+      <div style={{ gridColumn: "1 / -1", marginTop: 4, fontSize: 12.5, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.02em" }}>OCUPACIÓN Y ALTURA (RD 393/2007)</div>
+      <label><Lbl>Nº de alumnado</Lbl><input style={field} value={form.alumnos} onChange={set("alumnos")} placeholder="p. ej. 620" inputMode="numeric" /></label>
+      <label><Lbl>Nº de personal docente</Lbl><input style={field} value={form.docentes || ""} onChange={set("docentes")} placeholder="p. ej. 55" inputMode="numeric" /></label>
+      <label><Lbl>Nº de personal no docente</Lbl><input style={field} value={form.noDocentes || ""} onChange={set("noDocentes")} placeholder="p. ej. 20" inputMode="numeric" /></label>
+      <label><Lbl>Otras personas habituales</Lbl><input style={field} value={form.otras || ""} onChange={set("otras")} placeholder="p. ej. 10" inputMode="numeric" /></label>
+      <label style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
+        <input type="checkbox" checked={!!form.altura28} onChange={set("altura28")} style={{ width: 16, height: 16 }} />
+        <span style={{ fontSize: 13 }}>La altura de evacuación del centro es igual o superior a 28 m (aprox. 10 plantas)</span>
+      </label>
+      <div style={{ gridColumn: "1 / -1" }}><RD393Banner form={form} /></div>
     </div>
   );
 }
@@ -1016,10 +1112,10 @@ function Participant({ code, center, onBack }) {
 /* ------------------------------ Quick ------------------------------ */
 function Quick({ onBack }) {
   const [step, setStep] = useState("center");
-  const [center, setCenter] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "" });
+  const [center, setCenter] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false });
   const [interviews, setInterviews] = useState([]);
   const [adding, setAdding] = useState(false);
-  const set = (k) => (e) => setCenter({ ...center, [k]: e.target.value });
+  const set = (k) => (e) => setCenter({ ...center, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
 
   if (step === "center") {
     return (
@@ -1066,7 +1162,7 @@ function Quick({ onBack }) {
   }
   return (
     <div><BackLink onClick={() => setStep("collect")} label="Volver a entrevistas" />
-      <Results center={center} interviews={interviews} />
+      <Results center={center} interviews={interviews} serverDoc={store.mode === "api" ? () => store.downloadQuickDocument(center, interviews, {}) : null} />
     </div>
   );
 }
@@ -1122,7 +1218,7 @@ function Demo({ onBack }) {
           <span style={{ fontSize: 13.5, color: C.slate }}>Datos de <b>demostración</b> de un centro ficticio, para presentar la herramienta. No corresponden a ningún centro real.</span>
         </div>
       </Card>
-      <Results center={center} interviews={interviews} />
+      <Results center={center} interviews={interviews} serverDoc={store.mode === "api" ? () => store.downloadQuickDocument(center, interviews, {}) : null} />
     </div>
   );
 }
@@ -1134,12 +1230,27 @@ function CenterEditForm({ center, onSave, onCancel }) {
   const [tipo, setTipo] = useState((center && center.tipo) || "concertada");
   const [alumnos, setAlumnos] = useState((center && center.alumnos) || "");
   const [etapas, setEtapas] = useState((center && center.etapas) || "");
+  const [ccaa, setCcaa] = useState((center && center.ccaa) || "");
+  const [docentes, setDocentes] = useState((center && center.docentes) || "");
+  const [noDocentes, setNoDocentes] = useState((center && center.noDocentes) || "");
+  const [otras, setOtras] = useState((center && center.otras) || "");
+  const [altura28, setAltura28] = useState(!!(center && center.altura28));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const go = async () => {
     if (!name.trim()) { setErr("El nombre del centro es obligatorio."); return; }
     setBusy(true); setErr("");
-    try { await onSave({ name: name.trim(), ownership: tipo, stages: etapas.trim() || null, num_students: alumnos ? parseInt(alumnos, 10) : null }); }
+    try {
+      await onSave({
+        name: name.trim(), ownership: tipo, stages: etapas.trim() || null,
+        num_students: alumnos ? parseInt(alumnos, 10) : null,
+        ccaa: ccaa || null,
+        num_teaching_staff: docentes ? parseInt(docentes, 10) : null,
+        num_non_teaching_staff: noDocentes ? parseInt(noDocentes, 10) : null,
+        num_other_people: otras ? parseInt(otras, 10) : null,
+        height_ge_28m: altura28,
+      });
+    }
     catch (e) { setErr(e.message || "No se pudieron guardar los datos."); setBusy(false); }
   };
   return (
@@ -1148,8 +1259,24 @@ function CenterEditForm({ center, onSave, onCancel }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <label style={{ gridColumn: "1 / -1" }}><Lbl>Nombre del centro</Lbl><input style={field} value={name} onChange={(e) => setName(e.target.value)} /></label>
         <label><Lbl>Titularidad</Lbl><select style={field} value={tipo} onChange={(e) => setTipo(e.target.value)}><option value="publica">Pública</option><option value="concertada">Concertada</option><option value="privada">Privada</option></select></label>
-        <label><Lbl>Nº de alumnado</Lbl><input style={field} value={alumnos} onChange={(e) => setAlumnos(e.target.value.replace(/[^0-9]/g, ""))} placeholder="p. ej. 620" /></label>
+        <label><Lbl>Comunidad autónoma</Lbl>
+          <select style={field} value={ccaa} onChange={(e) => setCcaa(e.target.value)}>
+            <option value="">— Sin especificar —</option>
+            {CCAA_LIST.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
         <label style={{ gridColumn: "1 / -1" }}><Lbl>Etapas educativas</Lbl><input style={field} value={etapas} onChange={(e) => setEtapas(e.target.value)} placeholder="Infantil, Primaria, ESO…" /></label>
+
+        <div style={{ gridColumn: "1 / -1", marginTop: 2, fontSize: 12, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.02em" }}>OCUPACIÓN Y ALTURA (RD 393/2007)</div>
+        <label><Lbl>Nº de alumnado</Lbl><input style={field} value={alumnos} onChange={(e) => setAlumnos(e.target.value.replace(/[^0-9]/g, ""))} placeholder="p. ej. 620" /></label>
+        <label><Lbl>Nº de personal docente</Lbl><input style={field} value={docentes} onChange={(e) => setDocentes(e.target.value.replace(/[^0-9]/g, ""))} placeholder="p. ej. 55" /></label>
+        <label><Lbl>Nº de personal no docente</Lbl><input style={field} value={noDocentes} onChange={(e) => setNoDocentes(e.target.value.replace(/[^0-9]/g, ""))} placeholder="p. ej. 20" /></label>
+        <label><Lbl>Otras personas habituales</Lbl><input style={field} value={otras} onChange={(e) => setOtras(e.target.value.replace(/[^0-9]/g, ""))} placeholder="p. ej. 10" /></label>
+        <label style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
+          <input type="checkbox" checked={altura28} onChange={(e) => setAltura28(e.target.checked)} style={{ width: 16, height: 16 }} />
+          <span style={{ fontSize: 13 }}>La altura de evacuación del centro es igual o superior a 28 m (aprox. 10 plantas)</span>
+        </label>
+        <div style={{ gridColumn: "1 / -1" }}><RD393Banner form={{ alumnos, docentes, noDocentes, otras, altura28 }} /></div>
       </div>
       {err && <div style={{ fontSize: 12.5, color: C.crit, marginTop: 8 }}>{err}</div>}
       <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -1326,7 +1453,10 @@ function Results({ center, interviews, overrides = {}, editable = false, onOverr
   const risks = computeRisks(interviews, overrides);
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
-  const tableRisks = editable ? [...rated].sort((a, b) => a.code.localeCompare(b.code)) : ratedSorted;
+  // En modo editable se listan los 23 riesgos (también los que aún no tienen
+  // ninguna respuesta), para que el consultor pueda puntuarlos a su criterio
+  // experto sin depender de que haya datos de entrevistas.
+  const tableRisks = editable ? [...risks].sort((a, b) => a.code.localeCompare(b.code)) : ratedSorted;
   const critHigh = ratedSorted.filter((r) => ["crit", "high"].includes(r.band));
   const coverage = computeCoverage(interviews);
   const discrep = risks.flatMap((r) => r.discrepancies.map((d) => ({ code: r.code, ...d })));
@@ -1359,8 +1489,8 @@ function Results({ center, interviews, overrides = {}, editable = false, onOverr
                   {["Cód.", "Riesgo", "P", "I", "Niv.", "Banda", "Responsable"].map((h) => <th key={h} style={{ padding: "6px 8px", borderBottom: `2px solid ${C.line}`, fontFamily: mono, textAlign: (h === "P" || h === "I") ? "center" : "left" }}>{h}</th>)}
                   {editable && <th style={{ borderBottom: `2px solid ${C.line}` }} />}
                 </tr></thead>
-                <tbody>{tableRisks.map((r) => { const m = BAND_META[r.band]; return (
-                  <tr key={r.code} style={{ borderBottom: `1px solid ${C.line}` }}>
+                <tbody>{tableRisks.map((r) => { const m = r.band ? BAND_META[r.band] : null; return (
+                  <tr key={r.code} style={{ borderBottom: `1px solid ${C.line}`, opacity: r.status === "unrated" ? 0.75 : 1 }}>
                     <td style={{ padding: "7px 8px", fontFamily: mono, fontWeight: 700, color: C.navy }}>{r.code}</td>
                     <td style={{ padding: "7px 8px" }}>{r.title}</td>
                     <td style={{ padding: "5px 6px", textAlign: "center" }}>{editable
@@ -1369,15 +1499,17 @@ function Results({ center, interviews, overrides = {}, editable = false, onOverr
                     <td style={{ padding: "5px 6px", textAlign: "center" }}>{editable
                       ? <PIedit value={r.impact} on={r.overriddenFields.includes("impact")} onChange={(v) => onOverride(r.code, "impact", v)} />
                       : <span style={{ fontFamily: mono }}>{r.impact}</span>}</td>
-                    <td style={{ padding: "7px 8px", fontFamily: mono, fontWeight: 700 }}>{r.level}</td>
-                    <td style={{ padding: "7px 8px" }}><span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: m.color, padding: "2px 7px", borderRadius: 20 }}>{m.label}</span></td>
+                    <td style={{ padding: "7px 8px", fontFamily: mono, fontWeight: 700 }}>{r.level ?? "—"}</td>
+                    <td style={{ padding: "7px 8px" }}>{m
+                      ? <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: m.color, padding: "2px 7px", borderRadius: 20 }}>{m.label}</span>
+                      : <span style={{ fontSize: 11, fontWeight: 600, color: C.slate, padding: "2px 7px", borderRadius: 20, border: `1px dashed ${C.line}` }}>Sin puntuar</span>}</td>
                     <td style={{ padding: "7px 8px", color: C.slate }}>{r.resp}</td>
                     {editable && <td style={{ padding: "5px 6px", textAlign: "center" }}>{r.overridden
                       ? <button onClick={() => onResetRisk(r.code)} title="Restablecer valores sugeridos" style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, fontSize: 15, lineHeight: 1 }}>↺</button>
                       : null}</td>}
                   </tr>); })}</tbody>
               </table>
-              {editable && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8, lineHeight: 1.5 }}>Ajusta <b>P</b> e <b>I</b> con tu criterio experto: el nivel y la matriz se recalculan al instante. Los valores <b style={{ color: C.navy }}>resaltados</b> son ajustes tuyos; <b>↺</b> restablece el sugerido. Los cambios se guardan automáticamente.</div>}
+              {editable && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8, lineHeight: 1.5 }}>Ajusta <b>P</b> e <b>I</b> con tu criterio experto: el nivel y la matriz se recalculan al instante. Puedes puntuar cualquier riesgo aunque aún no tenga respuestas de entrevistas ("Sin puntuar"): en cuanto fijes una P, pasa a formar parte del modelo. Los valores <b style={{ color: C.navy }}>resaltados</b> son ajustes tuyos; <b>↺</b> restablece el sugerido (y, si el riesgo no tenía datos, lo deja otra vez sin puntuar). Los cambios se guardan automáticamente.</div>}
             </div>
           </div>
         </Section>
@@ -1440,8 +1572,12 @@ function Results({ center, interviews, overrides = {}, editable = false, onOverr
 /* --------------------------- edición P/I --------------------------- */
 function PIedit({ value, on, onChange }) {
   return (
-    <select value={value} onChange={(e) => onChange(parseInt(e.target.value, 10))}
-      style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "3px 4px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? C.navy : C.line}`, background: on ? hexA(C.navy, 0.08) : "#fff", color: C.navy }}>
+    <select value={value == null ? "" : value} onChange={(e) => onChange(e.target.value === "" ? null : parseInt(e.target.value, 10))}
+      style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "3px 4px", borderRadius: 6, cursor: "pointer",
+        border: `1px solid ${value == null ? C.med : on ? C.navy : C.line}`,
+        background: value == null ? hexA(C.med, 0.12) : on ? hexA(C.navy, 0.08) : "#fff",
+        color: value == null ? "#7A5A16" : C.navy }}>
+      {value == null && <option value="">–</option>}
       {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
     </select>
   );
