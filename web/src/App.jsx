@@ -103,8 +103,15 @@ const localStore = {
     if (patch.ownership !== undefined) next.tipo = patch.ownership;
     if (patch.stages !== undefined) next.etapas = patch.stages || "";
     if (patch.num_students !== undefined) next.alumnos = patch.num_students != null ? String(patch.num_students) : "";
+    if (patch.ccaa !== undefined) next.ccaa = patch.ccaa || "";
+    if (patch.num_teaching_staff !== undefined) next.docentes = patch.num_teaching_staff != null ? String(patch.num_teaching_staff) : "";
+    if (patch.num_non_teaching_staff !== undefined) next.noDocentes = patch.num_non_teaching_staff != null ? String(patch.num_non_teaching_staff) : "";
+    if (patch.num_other_people !== undefined) next.otras = patch.num_other_people != null ? String(patch.num_other_people) : "";
+    if (patch.height_ge_28m !== undefined) next.altura28 = !!patch.height_ge_28m;
     await KV.set(metaKey(code), next);
-    return { name: next.name, tipo: next.tipo, etapas: next.etapas || "", alumnos: next.alumnos || "" };
+    return { name: next.name, tipo: next.tipo, etapas: next.etapas || "", alumnos: next.alumnos || "",
+      ccaa: next.ccaa || "", docentes: next.docentes || "", noDocentes: next.noDocentes || "",
+      otras: next.otras || "", altura28: !!next.altura28 };
   },
   async listInterviews(code) { const keys = await KV.list(respPrefix(code)); const rows = await Promise.all(keys.map((k) => KV.get(k))); return rows.filter(Boolean); },
   async resetInterviews(code) { const keys = await KV.list(respPrefix(code)); await Promise.all(keys.map((k) => KV.del(k))); },
