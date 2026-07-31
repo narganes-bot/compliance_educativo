@@ -45,10 +45,20 @@ function createPgStore(connectionString) {
     async markPasswordResetTokenUsed(id) { await q("UPDATE password_reset_token SET used_at=now() WHERE id=$1", [id]); },
     async invalidateUserResetTokens(userId) { await q("UPDATE password_reset_token SET used_at=now() WHERE user_id=$1 AND used_at IS NULL", [userId]); },
 
+    // Crea el centro con todos sus datos, incluidos los de ocupación y altura
+    // del RD 393/2007 (docentes, no docentes, otras personas, altura ≥ 28 m).
     async createCenter(cid, d) {
       return withTenant(cid, async (c) => (await c.query(
-        "INSERT INTO center(consultancy_id,name,ownership,stages,num_students,ccaa) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",
-        [cid, d.name, d.ownership, d.stages || null, d.num_students != null ? d.num_students : null, d.ccaa || null])).rows[0]);
+        `INSERT INTO center(consultancy_id,name,ownership,stages,num_students,ccaa,
+                            num_teaching_staff,num_non_teaching_staff,num_other_people,height_ge_28m)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [cid, d.name, d.ownership, d.stages || null,
+         d.num_students != null ? d.num_students : null,
+         d.ccaa || null,
+         d.num_teaching_staff != null ? d.num_teaching_staff : null,
+         d.num_non_teaching_staff != null ? d.num_non_teaching_staff : null,
+         d.num_other_people != null ? d.num_other_people : null,
+         !!d.height_ge_28m])).rows[0]);
     },
     async listCenters(cid) { return withTenant(cid, async (c) => (await c.query("SELECT * FROM center WHERE consultancy_id=$1 ORDER BY created_at DESC", [cid])).rows); },
     async getCenter(cid, id) { return withTenant(cid, async (c) => (await c.query("SELECT * FROM center WHERE id=$1 AND consultancy_id=$2", [id, cid])).rows[0] || null); },
@@ -80,10 +90,13 @@ function createPgStore(connectionString) {
     },
 
     // ---- modelos guardados (listar y estado editable) ----
+    // Devuelve también los datos de ocupación y altura del centro (RD 393/2007)
+    // para que la pantalla "Mis modelos" y el panel los muestren al reabrir.
     async listCampaigns(cid) {
       return withTenant(cid, async (c) => (await c.query(
         `SELECT cp.id, cp.code, cp.status, cp.created_at, cp.retention_until,
-                ct.name AS center_name, ct.ownership, ct.stages, ct.num_students,
+                ct.name AS center_name, ct.ownership, ct.stages, ct.num_students, ct.ccaa,
+                ct.num_teaching_staff, ct.num_non_teaching_staff, ct.num_other_people, ct.height_ge_28m,
                 (SELECT count(*) FROM interview i WHERE i.campaign_id = cp.id) AS interview_count
            FROM campaign cp JOIN center ct ON ct.id = cp.center_id
           WHERE cp.consultancy_id = $1

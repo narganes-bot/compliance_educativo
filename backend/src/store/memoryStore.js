@@ -47,8 +47,18 @@ function createMemoryStore() {
     async invalidateUserResetTokens(userId) { for (const t of resetTokens.values()) if (t.user_id === userId && !t.used_at) t.used_at = new Date().toISOString(); },
 
     // ---- centros ----
+    // Guarda también los datos de ocupación y altura del RD 393/2007
+    // (personal docente, no docente, otras personas y altura ≥ 28 m).
     async createCenter(consultancy_id, d) {
-      const id = genId(); const row = { id, consultancy_id, name: d.name, ownership: d.ownership, stages: d.stages || null, num_students: d.num_students != null ? d.num_students : null, ccaa: d.ccaa || null, created_at: new Date().toISOString() };
+      const id = genId(); const row = {
+        id, consultancy_id, name: d.name, ownership: d.ownership, stages: d.stages || null,
+        num_students: d.num_students != null ? d.num_students : null, ccaa: d.ccaa || null,
+        num_teaching_staff: d.num_teaching_staff != null ? d.num_teaching_staff : null,
+        num_non_teaching_staff: d.num_non_teaching_staff != null ? d.num_non_teaching_staff : null,
+        num_other_people: d.num_other_people != null ? d.num_other_people : null,
+        height_ge_28m: !!d.height_ge_28m,
+        created_at: new Date().toISOString(),
+      };
       centers.set(id, row); return row;
     },
     async listCenters(consultancy_id) { return [...centers.values()].filter((c) => c.consultancy_id === consultancy_id); },
@@ -64,13 +74,24 @@ function createMemoryStore() {
     async updateCampaign(consultancy_id, id, patch) { const c = await this.getCampaign(consultancy_id, id); if (!c) return null; Object.assign(c, patch); return c; },
 
     // ---- modelos guardados (listar y estado editable) ----
+    // Devuelve también los datos de ocupación y altura (RD 393/2007) del centro.
     async listCampaigns(consultancy_id) {
       return [...campaigns.values()].filter((c) => c.consultancy_id === consultancy_id)
         .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
         .map((c) => {
           const center = centers.get(c.center_id) || {};
           const count = [...interviews.values()].filter((i) => i.campaign_id === c.id).length;
-          return { id: c.id, code: c.code, status: c.status, created_at: c.created_at, retention_until: c.retention_until, center_name: center.name || null, ownership: center.ownership || null, stages: center.stages || null, num_students: center.num_students != null ? center.num_students : null, interview_count: count };
+          return {
+            id: c.id, code: c.code, status: c.status, created_at: c.created_at, retention_until: c.retention_until,
+            center_name: center.name || null, ownership: center.ownership || null, stages: center.stages || null,
+            num_students: center.num_students != null ? center.num_students : null,
+            ccaa: center.ccaa || null,
+            num_teaching_staff: center.num_teaching_staff != null ? center.num_teaching_staff : null,
+            num_non_teaching_staff: center.num_non_teaching_staff != null ? center.num_non_teaching_staff : null,
+            num_other_people: center.num_other_people != null ? center.num_other_people : null,
+            height_ge_28m: !!center.height_ge_28m,
+            interview_count: count,
+          };
         });
     },
     async deleteCampaignByCode(consultancy_id, code) {
