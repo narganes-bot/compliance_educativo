@@ -601,20 +601,20 @@ function Home({ go }) {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>Del diagnóstico al modelo, en una sola herramienta</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>Del diagnóstico al modelo de prevención, en una sola herramienta</h1>
         <p style={{ fontSize: 14, color: C.slate, margin: "8px 0 0", maxWidth: 660 }}>
           Recoge las entrevistas del equipo por nivel jerárquico, agrégalas en una matriz de riesgos y genera el modelo con plan a 90 días y descarga del informe en Word.
         </p>
       </div>
 
-      <SectionLabel>Trabajar en un modelo</SectionLabel>
+      <SectionLabel>Trabajar en un modelo de prevención</SectionLabel>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 28 }}>
-        <ChoiceCard icon={Grid3x3} title="Continuar un modelo" primary
+        <ChoiceCard icon={Grid3x3} title="Continuar un modelo de prevención" primary
           desc="Abre uno de tus modelos guardados para seguir recogiendo entrevistas, ajustar la matriz o descargar el informe."
           cta="Ver modelos de prevención" onClick={() => go("models")} />
-        <ChoiceCard icon={Plus} title="Nuevo modelo"
+        <ChoiceCard icon={Plus} title="Nuevo modelo de prevención"
           desc="Crea la sala de un centro nuevo. Obtendrás un código para compartir con el equipo y el panel del modelo."
-          cta="Crear modelo" onClick={() => go("create")} />
+          cta="Crear modelo de prevención" onClick={() => go("create")} />
       </div>
 
       <SectionLabel>Otras opciones</SectionLabel>
