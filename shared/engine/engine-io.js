@@ -1,8 +1,5 @@
-/* ================================================================== *
- *  engine-io.js — Validación y normalización de entrada del motor
- *  Complementa engine.js. Garantiza que el payload {center, interviews}
- *  que llega del cliente o de la BD es válido y mínimo antes de calcular.
- * ================================================================== */
+"use strict";
+/* engine-io.js — copia de shared/engine/engine-io.js del repo */
 const E = require("./engine.js");
 
 const ENGINE_VERSION = "1.2.0";
@@ -12,7 +9,6 @@ const ROLE_IDS = new Set([...E.ROLES.map((r) => r.id), E.CONSULTANT_ROLE]);
 const OWNERSHIP = new Set(["publica", "concertada", "privada"]);
 const RISK_CODES = new Set(E.RISKS.map((r) => r.code));
 
-// Recorta a alias (iniciales): evita almacenar nombres completos.
 function toAlias(name) {
   if (!name) return "";
   const parts = String(name).trim().split(/\s+/).slice(0, 3);
@@ -28,7 +24,6 @@ function normalizeInterview(iv) {
       if (QIDS.has(k) && VALID_ANSWERS.has(v)) answers[k] = v;
     }
   }
-  // Comentarios: solo se conservan en respuestas 'parcial' o 'ns', recortados a 500.
   const comments = {};
   if (iv && iv.comments && typeof iv.comments === "object") {
     for (const [k, v] of Object.entries(iv.comments)) {
@@ -53,19 +48,16 @@ function normalizeCenter(c) {
     noDocentes: (c.noDocentes != null ? c.noDocentes : c.num_non_teaching_staff != null ? c.num_non_teaching_staff : "").toString().slice(0, 20),
     otras: (c.otras != null ? c.otras : c.num_other_people != null ? c.num_other_people : "").toString().slice(0, 20),
     alturaGe28m: !!(c.alturaGe28m != null ? c.alturaGe28m : c.altura28 != null ? c.altura28 : c.height_ge_28m),
+    evacuacionEspecial: !!(c.evacuacionEspecial != null ? c.evacuacionEspecial : c.evacEspecial != null ? c.evacEspecial : c.special_evacuation),
   };
-  // RD 393/2007: se calcula aquí, sobre los mismos datos, para que la app y el
-  // futuro informe Word muestren siempre el mismo resultado (fuente única).
   center.rd393 = E.rd393Assessment({
     num_students: center.alumnos, num_teaching_staff: center.docentes,
     num_non_teaching_staff: center.noDocentes, num_other_people: center.otras,
-    height_ge_28m: center.alturaGe28m,
+    height_ge_28m: center.alturaGe28m, special_evacuation: center.evacuacionEspecial,
   });
   return center;
 }
 
-// Normaliza las sobrescrituras manuales: solo códigos de riesgo válidos y
-// valores enteros 1..5 para prob/impact.
 function normalizeOverrides(raw) {
   const out = {};
   const src = (raw && typeof raw === "object") ? raw : {};
@@ -79,7 +71,6 @@ function normalizeOverrides(raw) {
   return out;
 }
 
-// Valida y normaliza el payload completo. Devuelve { ok, errors, data }.
 function validatePayload(payload) {
   const errors = [];
   if (!payload || typeof payload !== "object") return { ok: false, errors: ["payload no válido"], data: null };
@@ -95,7 +86,6 @@ function validatePayload(payload) {
   return { ok: errors.length === 0 || interviews.length > 0, errors, data: { center, interviews, overrides } };
 }
 
-// Cálculo listo para servir por la API (motor + versión).
 function analyze(payload) {
   const { data } = validatePayload(payload);
   return {
@@ -103,7 +93,7 @@ function analyze(payload) {
     center: data.center,
     interviews: data.interviews.length,
     overrides: data.overrides,
-    risks: E.computeRisks(data.interviews, data.overrides),
+    risks: E.computeRisks(data.interviews, data.overrides, data.center),
     coverage: E.computeCoverage(data.interviews),
     generatedAt: new Date().toISOString(),
   };

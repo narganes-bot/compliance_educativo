@@ -1,9 +1,4 @@
-/* ================================================================== *
- *  engine.js — Motor de reglas de compliance educativo (LOPIVI)
- *  Réplica exacta de la lógica de la app. Reutilizable por la app,
- *  por el generador de Word y por una futura API/servidor.
- * ================================================================== */
-
+/* engine.js — Motor de reglas (copia de shared/engine/engine.js del repo) */
 const LAW_CATALOG = [
   { id: "cdn", label: "Convención sobre los Derechos del Niño", level: "Internacional", transversal: true },
   { id: "lanzarote", label: "Convenio de Lanzarote", level: "Consejo de Europa" },
@@ -17,12 +12,13 @@ const LAW_CATALOG = [
   { id: "rgpd", label: "RGPD / LOPDGDD", level: "Estatal" },
   { id: "cc", label: "Código Civil (arts. 1902-1904)", level: "Estatal" },
   { id: "ley40", label: "Ley 40/2015 (resp. patrimonial)", level: "Estatal" },
+  { id: "rd393", label: "RD 393/2007 (Norma Básica de Autoprotección)", level: "Estatal" },
   { id: "auton", label: "Protocolos autonómicos", level: "Autonómico" },
 ];
 const LAW_SHORT = {
   cdn: "CDN", lanzarote: "Lanzarote", budapest: "Budapest", dir2011: "Dir. 2011/93/UE",
   lopivi: "LOPIVI", lopjm: "LOPJM", loe124: "LOE 124", lo1_2004: "LO 1/2004",
-  ley4_2015: "Ley 4/2015", rgpd: "RGPD", cc: "CC 1902-04", ley40: "Ley 40/2015", auton: "Autonómica",
+  ley4_2015: "Ley 4/2015", rgpd: "RGPD", cc: "CC 1902-04", ley40: "Ley 40/2015", rd393: "RD 393/2007", auton: "Autonómica",
 };
 const LAW_LEVELS = ["Internacional", "Consejo de Europa", "Unión Europea", "Estatal", "Autonómico"];
 const lawShort = (id) => LAW_SHORT[id] || id;
@@ -39,10 +35,6 @@ const ROLES = [
 ];
 const roleLabel = (id) => (ROLES.find((r) => r.id === id) || {}).label || id;
 const roleShort = (id) => roleLabel(id).split(/[ /]/)[0];
-
-// Rol especial de "relleno" del consultor: NO es un nivel jerárquico real.
-// Sus respuestas ayudan a evaluar riesgos que quedarían sin datos, pero no se
-// cuentan como nivel cubierto ni entran en la detección de discrepancias.
 const CONSULTANT_ROLE = "consultor";
 
 const RISKS = [
@@ -69,6 +61,7 @@ const RISKS = [
   { code: "R21", title: "Falta de documentación y trazabilidad", impact: 4, resp: "Secretaría / Dirección", laws: ["ley40", "rgpd"] },
   { code: "R22", title: "Deficiente coordinación con servicios sociales y autoridades", impact: 4, resp: "Coordinador/a / Dirección", laws: ["lopjm", "lopivi", "lo1_2004"] },
   { code: "R23", title: "Riesgos reputacionales e institucionales", impact: 4, resp: "Titularidad / Dirección", laws: [] },
+  { code: "R24", title: "Ausencia o falta de implantación del Plan de Autoprotección y medidas de emergencia", impact: 4, resp: "Titularidad / Dirección", laws: ["rd393", "auton"] },
 ];
 
 const QUESTIONS = [
@@ -101,31 +94,39 @@ const QUESTIONS = [
   { id: "q27", q: "¿El centro tiene un plan de convivencia actualizado y aplicado (art. 124 LOE)?", roles: ["direccion", "jefatura"], risks: ["R05", "R08"], laws: ["loe124"] },
   { id: "q28", q: "¿Hay pauta de actuación cuando un menor es víctima de violencia de género en su entorno?", roles: ["coordinador", "direccion"], risks: ["R22", "R04"], laws: ["lo1_2004"] },
   { id: "q29", q: "¿Se aplican los protocolos autonómicos vigentes (acoso, ciberacoso, maltrato)?", roles: ["coordinador", "jefatura"], risks: ["R02", "R05", "R06"], laws: ["auton"] },
+  { id: "q30", q: "¿Dispone el centro de Plan de Autoprotección (o plan de emergencias) elaborado, actualizado y, cuando es exigible, registrado conforme al RD 393/2007 y la normativa autonómica?", roles: ["titularidad", "direccion"], risks: ["R24"], laws: ["rd393", "auton"] },
+  { id: "q31", q: "¿Se realiza al menos un simulacro de evacuación al año y se registran sus resultados e incidencias?", roles: ["direccion", "jefatura", "profesorado"], risks: ["R24"], laws: ["rd393", "auton"] },
+  { id: "q32", q: "¿El personal conoce sus funciones en caso de emergencia (alarma, evacuación, ayuda a personas con movilidad reducida, primeros auxilios)?", roles: ["profesorado", "nodocente"], risks: ["R24"], laws: ["rd393"] },
 ];
 
 const ANSWER_VALUE = { si: 1, parcial: 0.5, no: 0, ns: 0.15 };
 const ANSWER_LABEL = { si: "Sí", parcial: "Parcial", no: "No", ns: "No sé" };
-
 const bandOf = (level) => (level <= 4 ? "low" : level <= 10 ? "med" : level <= 15 ? "high" : "crit");
 const BAND_LABEL = { low: "Bajo", med: "Medio", high: "Alto", crit: "Crítico" };
-
-// Valida una sobrescritura manual de P/I: entero entre 1 y 5, o null.
 const validPI = (v) => (Number.isInteger(v) && v >= 1 && v <= 5 ? v : null);
 
-/**
- * Calcula los riesgos a partir de las entrevistas.
- * @param {Array}  interviews  [{ role, answers }]
- * @param {Object} overrides   sobrescrituras manuales por riesgo:
- *                             { R07: { prob: 4, impact: 5 }, ... }
- *                             Solo se aplican valores enteros 1..5.
- *
- * Para cada riesgo se conservan SIEMPRE los valores sugeridos por el motor
- * (probSuggested / impactSuggested) y se calcula el valor final (prob / impact)
- * usando el manual cuando existe. `overridden` y `overriddenFields` permiten
- * marcar en la app y en el informe qué valores fijó el consultor a su criterio.
- */
-function computeRisks(interviews, overrides = {}) {
+// Acepta el centro en cualquiera de sus formatos (app, backend o motor) y
+// devuelve la evaluación RD 393/2007, o null si no hay datos del centro.
+function rd393FromCenter(center) {
+  if (!center) return null;
+  if (center.rd393) return center.rd393;
+  const pick = (...vals) => { for (const v of vals) if (v !== undefined && v !== null) return v; return null; };
+  return rd393Assessment({
+    num_students: pick(center.num_students, center.alumnos),
+    num_teaching_staff: pick(center.num_teaching_staff, center.docentes),
+    num_non_teaching_staff: pick(center.num_non_teaching_staff, center.noDocentes),
+    num_other_people: pick(center.num_other_people, center.otras),
+    height_ge_28m: pick(center.height_ge_28m, center.alturaGe28m, center.altura28) || false,
+    special_evacuation: pick(center.special_evacuation, center.evacuacionEspecial, center.evacEspecial) || false,
+  });
+}
+
+function computeRisks(interviews, overrides = {}, center = null) {
   overrides = overrides && typeof overrides === "object" ? overrides : {};
+  // Si el RD 393/2007 es de aplicación al centro, el impacto del riesgo R24
+  // sube a Muy alto (5): la autoprotección pasa de buena práctica exigible a
+  // obligación legal directa y sancionable (arts. 2 y 9 RD 393/2007).
+  const rd393 = rd393FromCenter(center);
   return RISKS.map((risk) => {
     const qs = QUESTIONS.filter((q) => q.risks.includes(risk.code));
     const answers = [];
@@ -141,20 +142,15 @@ function computeRisks(interviews, overrides = {}) {
         if (Math.max(...vals) - Math.min(...vals) >= 0.5) discrepancies.push({ q: q.q, detail: perQ });
       }
     });
-
     const nsCount = answers.filter((a) => a === "ns").length;
     const missing = qs.filter((q) => interviews.some((iv) => ["no", "parcial", "ns"].includes(iv.answers[q.id]))).map((q) => q.q);
-
-    // Valores sugeridos por el motor
     let probSuggested = null, control = null;
     if (answers.length) {
       const scores = answers.map((a) => ANSWER_VALUE[a]);
       control = scores.reduce((s, x) => s + x, 0) / scores.length;
       probSuggested = Math.min(5, Math.max(1, Math.round(5 - control * 4)));
     }
-    const impactSuggested = risk.impact;
-
-    // Sobrescrituras manuales (criterio experto)
+    const impactSuggested = (risk.code === "R24" && rd393 && rd393.applies) ? 5 : risk.impact;
     const ov = overrides[risk.code] || null;
     const ovProb = ov ? validPI(ov.prob) : null;
     const ovImpact = ov ? validPI(ov.impact) : null;
@@ -162,21 +158,9 @@ function computeRisks(interviews, overrides = {}) {
     if (ovProb != null) overriddenFields.push("prob");
     if (ovImpact != null) overriddenFields.push("impact");
     const overridden = overriddenFields.length > 0;
-
-    // Valores finales: el manual si existe; si no, el sugerido
     const prob = ovProb != null ? ovProb : probSuggested;
     const impact = ovImpact != null ? ovImpact : impactSuggested;
-
-    const common = {
-      ...risk,
-      impact,              // valor final (compat. con docgen/app: r.impact)
-      prob,                // valor final (compat. con docgen/app: r.prob)
-      probSuggested, impactSuggested,
-      overridden, overriddenFields,
-      control, nsCount, missing, discrepancies,
-    };
-
-    // "rated" si tenemos P e I (por datos o por criterio experto)
+    const common = { ...risk, impact, prob, probSuggested, impactSuggested, overridden, overriddenFields, control, nsCount, missing, discrepancies };
     if (prob != null && impact != null) {
       const level = prob * impact;
       return { ...common, status: "rated", level, band: bandOf(level) };
@@ -193,15 +177,6 @@ function computeCoverage(interviews) {
   });
 }
 
-// ---------------------------------------------------------------------
-// RD 393/2007, de 23 de marzo, Norma Básica de Autoprotección de los
-// centros, establecimientos y dependencias dedicados a actividades que
-// puedan dar origen a situaciones de emergencia (art. 2 y anexo I).
-// Aplica cuando la ocupación total del centro es igual o superior a 2.000
-// personas, o cuando la altura de evacuación es igual o superior a 28 m
-// (aprox. 10 plantas). La ocupación total suma alumnado, personal docente,
-// personal no docente y otras personas habituales en el centro.
-// ---------------------------------------------------------------------
 const RD393_OCCUPANCY_THRESHOLD = 2000;
 const RD393_HEIGHT_THRESHOLD_M = 28;
 function rd393Assessment(center) {
@@ -214,15 +189,20 @@ function rd393Assessment(center) {
   const occupancy = students + teaching + nonTeaching + others;
   const byOccupancy = occupancy >= RD393_OCCUPANCY_THRESHOLD;
   const byHeight = !!center.height_ge_28m;
+  // Anexo I.e, primer supuesto: centros especialmente destinados a personas con
+  // discapacidad física o psíquica o que no puedan evacuar por sus propios
+  // medios. Aplica SIN umbral de ocupación ni altura.
+  const bySpecial = !!center.special_evacuation;
   const reasons = [];
+  if (bySpecial) reasons.push("centro especialmente destinado a personas que no pueden realizar una evacuación por sus propios medios (Anexo I.e, sin umbral)");
   if (byOccupancy) reasons.push(`ocupación total de ${occupancy} personas (≥ ${RD393_OCCUPANCY_THRESHOLD})`);
   if (byHeight) reasons.push(`altura de evacuación ≥ ${RD393_HEIGHT_THRESHOLD_M} m (10 plantas)`);
-  return { occupancy, byOccupancy, byHeight, applies: byOccupancy || byHeight, reasons };
+  return { occupancy, byOccupancy, byHeight, bySpecial, applies: byOccupancy || byHeight || bySpecial, reasons };
 }
 
 module.exports = {
   LAW_CATALOG, LAW_LEVELS, lawShort, lawLabel, ROLES, roleLabel, roleShort,
   RISKS, QUESTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
-  rd393Assessment, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
+  rd393Assessment, rd393FromCenter, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
 };
