@@ -71,6 +71,32 @@ function normalizeOverrides(raw) {
   return out;
 }
 
+function normalizeWeights(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const clampW = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 5 ? n : null; };
+  const out = {};
+  if (raw.roles && typeof raw.roles === "object") {
+    out.roles = {};
+    for (const [role, v] of Object.entries(raw.roles)) {
+      if (!ROLE_IDS.has(role)) continue;
+      const w = clampW(v); if (w != null) out.roles[role] = w;
+    }
+  }
+  if (raw.questions && typeof raw.questions === "object") {
+    out.questions = {};
+    for (const [qid, rmap] of Object.entries(raw.questions)) {
+      if (!QIDS.has(qid) || !rmap || typeof rmap !== "object") continue;
+      const clean = {};
+      for (const [role, v] of Object.entries(rmap)) {
+        if (!ROLE_IDS.has(role)) continue;
+        const w = clampW(v); if (w != null) clean[role] = w;
+      }
+      if (Object.keys(clean).length) out.questions[qid] = clean;
+    }
+  }
+  return (out.roles || out.questions) ? out : null;
+}
+
 function validatePayload(payload) {
   const errors = [];
   if (!payload || typeof payload !== "object") return { ok: false, errors: ["payload no válido"], data: null };
@@ -83,7 +109,8 @@ function validatePayload(payload) {
     return true;
   });
   const overrides = normalizeOverrides(payload.overrides);
-  return { ok: errors.length === 0 || interviews.length > 0, errors, data: { center, interviews, overrides } };
+  const weights = normalizeWeights(payload.weights);
+  return { ok: errors.length === 0 || interviews.length > 0, errors, data: { center, interviews, overrides, weights } };
 }
 
 function analyze(payload) {
@@ -93,10 +120,10 @@ function analyze(payload) {
     center: data.center,
     interviews: data.interviews.length,
     overrides: data.overrides,
-    risks: E.computeRisks(data.interviews, data.overrides, data.center),
+    risks: E.computeRisks(data.interviews, data.overrides, data.center, data.weights),
     coverage: E.computeCoverage(data.interviews),
     generatedAt: new Date().toISOString(),
   };
 }
 
-module.exports = { ENGINE_VERSION, VALID_ANSWERS, toAlias, normalizeInterview, normalizeCenter, normalizeOverrides, validatePayload, analyze };
+module.exports = { ENGINE_VERSION, VALID_ANSWERS, toAlias, normalizeInterview, normalizeCenter, normalizeOverrides, normalizeWeights, validatePayload, analyze };

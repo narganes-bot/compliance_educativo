@@ -99,10 +99,80 @@ const QUESTIONS = [
   { id: "q32", q: "¿El personal conoce sus funciones en caso de emergencia (alarma, evacuación, ayuda a personas con movilidad reducida, primeros auxilios)?", roles: ["profesorado", "nodocente"], risks: ["R24"], laws: ["rd393"] },
 ];
 
+// Acción correctora recomendada para cada control (pregunta). Cuando un control
+// aparece como "a reforzar" (respuestas No / Parcial / No sé), el informe muestra
+// esta medida —afirmativa, práctica y fundamentada— en lugar de repetir la pregunta.
+const QUESTION_ACTIONS = {
+  q1: "Designar formalmente y por escrito al Coordinador/a de Bienestar y Protección, y comunicar su nombramiento y funciones a toda la comunidad educativa (art. 35 LOPIVI).",
+  q2: "Proporcionar al Coordinador/a formación específica y acreditada en protección a la infancia, y conservar los certificados como evidencia.",
+  q3: "Aprobar por la titularidad una Política de protección de la infancia y la adolescencia, publicarla y difundirla a familias, personal y alumnado, recabando acuse de lectura.",
+  q4: "Difundir los protocolos a todo el personal, formar en su aplicación y verificar su implantación mediante simulacros o casos prácticos, dejando registro.",
+  q5: "Aprobar un código de conducta que regule el trato con menores, el contacto físico, la comunicación digital y las conductas prohibidas, y recabar la firma de todo el personal y de los terceros con contacto habitual con el alumnado, conservándola como evidencia.",
+  q6: "Poner en funcionamiento el protocolo frente a la violencia y el acoso, designar responsables de su aplicación y registrar cada intervención y su seguimiento (art. 124 LOE y protocolo autonómico).",
+  q7: "Aprobar un protocolo de ciberacoso y una norma de uso responsable de las TIC, e impartir educación digital al alumnado.",
+  q8: "Implantar un protocolo específico ante sospecha de abuso sexual que garantice la escucha única, la comunicación inmediata a Fiscalía y a las Fuerzas y Cuerpos de Seguridad, y la no revictimización del menor.",
+  q9: "Verificar, antes del inicio de la relación y con renovación periódica, el certificado negativo del Registro Central de Delincuentes Sexuales de todo el personal con contacto habitual con menores, y mantener un registro centralizado (art. 57 LOPIVI).",
+  q10: "Extender la verificación del certificado negativo a proveedores, monitores y voluntariado, incluir cláusulas LOPIVI en los contratos y controlar la vigencia de los certificados.",
+  q11: "Habilitar un canal de comunicación y denuncia accesible para menores y adultos, difundirlo (cartelería, web) y garantizar la confidencialidad y el registro de las comunicaciones.",
+  q12: "Formar a todo el personal en el deber de comunicación inmediata ante indicios de violencia, indicando con claridad a quién y cómo comunicar (arts. 15-16 LOPIVI).",
+  q13: "Implantar un procedimiento de registro y custodia de las comunicaciones, decisiones y derivaciones, con trazabilidad y plazos de conservación definidos.",
+  q14: "Aprobar un plan de formación anual obligatorio en protección a la infancia, con evaluación y registro de asistencia por perfil.",
+  q15: "Definir y documentar los ratios y turnos de vigilancia en patios, comedor, transporte y salidas, mediante un mapa de vigilancia y cuadrantes.",
+  q16: "Aprobar un protocolo de actividades extraescolares y salidas con evaluación de riesgos, ratios, autorizaciones, seguros y contactos de emergencia.",
+  q17: "Garantizar acompañante y control de listas en el transporte escolar conforme a la normativa autonómica, y registrar las incidencias.",
+  q18: "Gestionar fichas de alergias e intolerancias y verificar el control de seguridad alimentaria (APPCC) del comedor, con supervisión suficiente del alumnado.",
+  q19: "Documentar el tratamiento de datos (registro de actividades), fijar su base jurídica y aplicar medidas de seguridad, con especial protección de los datos de menores (RGPD y LOPDGDD).",
+  q20: "Restringir el acceso a la información sensible según el principio de necesidad de conocer, con control de accesos y compromisos de confidencialidad firmados.",
+  q21: "Designar un Delegado de Protección de Datos o documentar la evaluación de su necesidad conforme al RGPD.",
+  q22: "Definir interlocutores y cauces de coordinación con los servicios sociales, las Fuerzas y Cuerpos de Seguridad y la Fiscalía de Menores, con formularios de derivación y registro de respuestas.",
+  q23: "Programar al menos una auditoría o revisión interna anual del sistema, con informe de no conformidades y plan de acciones.",
+  q24: "Elaborar un plan de gestión de crisis y comunicación, con portavocía definida y bitácora de actuación.",
+  q25: "Aprobar por la titularidad la asignación de recursos y presupuesto al sistema de protección, dejando constancia en acta.",
+  q26: "Establecer una supervisión documentada del sistema por parte de la dirección, con actas de supervisión periódicas.",
+  q27: "Actualizar y aplicar el plan de convivencia conforme al art. 124 de la LOE, con seguimiento en el consejo escolar.",
+  q28: "Aprobar una pauta de actuación y derivación cuando un menor sea víctima de violencia de género en su entorno, coordinada con los recursos especializados (LO 1/2004).",
+  q29: "Aplicar los protocolos autonómicos vigentes de acoso, ciberacoso y maltrato, verificando su versión actualizada con la Consejería de Educación.",
+  q30: "Elaborar, actualizar y —cuando sea exigible— registrar el Plan de Autoprotección conforme al RD 393/2007 y la normativa autonómica, integrándolo con las medidas de emergencia del centro.",
+  q31: "Realizar al menos un simulacro de evacuación anual, registrar sus resultados e incidencias y adoptar las medidas de mejora que procedan.",
+  q32: "Asignar y difundir las funciones del personal en caso de emergencia (alarma, evacuación, ayuda a personas con movilidad reducida, primeros auxilios) y formarlo periódicamente.",
+};
+
 const ANSWER_VALUE = { si: 1, parcial: 0.5, no: 0, ns: 0.15 };
 const ANSWER_LABEL = { si: "Sí", parcial: "Parcial", no: "No", ns: "No sé" };
 const bandOf = (level) => (level <= 4 ? "low" : level <= 10 ? "med" : level <= 15 ? "high" : "crit");
 const BAND_LABEL = { low: "Bajo", med: "Medio", high: "Alto", crit: "Crítico" };
+// ---------------------------------------------------------------------
+// Ponderación de respuestas (peso base por rol + excepciones por pregunta).
+// La probabilidad de cada riesgo se calcula como MEDIA PONDERADA de las
+// respuestas: cada respuesta pesa según el rol de quien la da y, si procede,
+// según un ajuste específico para esa pregunta. Predeterminado razonado:
+// se da algo más de peso a quien vive el control en el día a día, porque su
+// conocimiento refleja la implantación real. El consultor puede ajustar estos
+// pesos por modelo desde la aplicación.
+const DEFAULT_WEIGHTS = {
+  roles: {
+    titularidad: 1.0, direccion: 1.0, coordinador: 1.1, jefatura: 1.0,
+    profesorado: 1.2, nodocente: 1.1, dpd: 1.0, consultor: 1.0,
+  },
+  questions: {
+    q4:  { profesorado: 2.0, coordinador: 1.2, direccion: 0.8 },
+    q6:  { profesorado: 1.5, jefatura: 1.3 },
+    q11: { profesorado: 1.8, direccion: 0.8 },
+    q12: { profesorado: 2.0, nodocente: 1.8 },
+    q15: { profesorado: 1.5, jefatura: 1.2 },
+    q29: { coordinador: 1.5, jefatura: 1.3 },
+    q31: { profesorado: 1.5, jefatura: 1.3 },
+    q32: { profesorado: 1.8, nodocente: 1.8 },
+  },
+};
+
+function effectiveWeight(qid, role, W) {
+  const qov = W && W.questions && W.questions[qid];
+  if (qov && qov[role] != null && isFinite(qov[role])) return Math.max(0, qov[role]);
+  if (W && W.roles && W.roles[role] != null && isFinite(W.roles[role])) return Math.max(0, W.roles[role]);
+  return 1;
+}
+
 const validPI = (v) => (Number.isInteger(v) && v >= 1 && v <= 5 ? v : null);
 
 // Acepta el centro en cualquiera de sus formatos (app, backend o motor) y
@@ -121,8 +191,10 @@ function rd393FromCenter(center) {
   });
 }
 
-function computeRisks(interviews, overrides = {}, center = null) {
+function computeRisks(interviews, overrides = {}, center = null, weights = null) {
   overrides = overrides && typeof overrides === "object" ? overrides : {};
+  // Config de pesos: la aportada por el modelo si existe; si no, el predeterminado.
+  const W = (weights && typeof weights === "object" && (weights.roles || weights.questions)) ? weights : DEFAULT_WEIGHTS;
   // Si el RD 393/2007 es de aplicación al centro, el impacto del riesgo R24
   // sube a Muy alto (5): la autoprotección pasa de buena práctica exigible a
   // obligación legal directa y sancionable (arts. 2 y 9 RD 393/2007).
@@ -143,12 +215,25 @@ function computeRisks(interviews, overrides = {}, center = null) {
       }
     });
     const nsCount = answers.filter((a) => a === "ns").length;
-    const missing = qs.filter((q) => interviews.some((iv) => ["no", "parcial", "ns"].includes(iv.answers[q.id]))).map((q) => q.q);
+    const missingQs = qs.filter((q) => interviews.some((iv) => ["no", "parcial", "ns"].includes(iv.answers[q.id])));
+    const missing = missingQs.map((q) => q.q);                                   // preguntas (compat.)
+    const actions = missingQs.map((q) => QUESTION_ACTIONS[q.id] || q.q);         // acciones correctoras
+    // Probabilidad sugerida = media PONDERADA de las respuestas (peso por rol y
+    // por pregunta, ver DEFAULT_WEIGHTS / config del modelo).
     let probSuggested = null, control = null;
     if (answers.length) {
-      const scores = answers.map((a) => ANSWER_VALUE[a]);
-      control = scores.reduce((s, x) => s + x, 0) / scores.length;
-      probSuggested = Math.min(5, Math.max(1, Math.round(5 - control * 4)));
+      let num = 0, den = 0;
+      qs.forEach((q) => {
+        interviews.forEach((iv) => {
+          const a = iv.answers[q.id];
+          if (!a) return;
+          const w = effectiveWeight(q.id, iv.role, W);
+          num += ANSWER_VALUE[a] * w;
+          den += w;
+        });
+      });
+      control = den > 0 ? num / den : null;
+      if (control != null) probSuggested = Math.min(5, Math.max(1, Math.round(5 - control * 4)));
     }
     const impactSuggested = (risk.code === "R24" && rd393 && rd393.applies) ? 5 : risk.impact;
     const ov = overrides[risk.code] || null;
@@ -160,7 +245,7 @@ function computeRisks(interviews, overrides = {}, center = null) {
     const overridden = overriddenFields.length > 0;
     const prob = ovProb != null ? ovProb : probSuggested;
     const impact = ovImpact != null ? ovImpact : impactSuggested;
-    const common = { ...risk, impact, prob, probSuggested, impactSuggested, overridden, overriddenFields, control, nsCount, missing, discrepancies };
+    const common = { ...risk, impact, prob, probSuggested, impactSuggested, overridden, overriddenFields, control, nsCount, missing, actions, discrepancies };
     if (prob != null && impact != null) {
       const level = prob * impact;
       return { ...common, status: "rated", level, band: bandOf(level) };
@@ -202,7 +287,8 @@ function rd393Assessment(center) {
 
 module.exports = {
   LAW_CATALOG, LAW_LEVELS, lawShort, lawLabel, ROLES, roleLabel, roleShort,
-  RISKS, QUESTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
+  RISKS, QUESTIONS, QUESTION_ACTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
   rd393Assessment, rd393FromCenter, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
+  DEFAULT_WEIGHTS, effectiveWeight,
 };
