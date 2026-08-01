@@ -156,7 +156,7 @@ const DEFAULT_WEIGHTS = {
   },
   questions: {
     q4:  { profesorado: 2.0, coordinador: 1.2, direccion: 0.8 },
-    q6:  { profesorado: 1.5, jefatura: 1.3 },
+    q6:  { coordinador: 1.2, jefatura: 1.4 },
     q11: { profesorado: 1.8, direccion: 0.8 },
     q12: { profesorado: 2.0, nodocente: 1.8 },
     q15: { profesorado: 1.5, jefatura: 1.2 },
