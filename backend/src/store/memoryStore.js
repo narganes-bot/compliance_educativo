@@ -57,6 +57,7 @@ function createMemoryStore() {
         num_non_teaching_staff: d.num_non_teaching_staff != null ? d.num_non_teaching_staff : null,
         num_other_people: d.num_other_people != null ? d.num_other_people : null,
         height_ge_28m: !!d.height_ge_28m,
+        special_evacuation: !!d.special_evacuation,
         created_at: new Date().toISOString(),
       };
       centers.set(id, row); return row;
@@ -90,6 +91,7 @@ function createMemoryStore() {
             num_non_teaching_staff: center.num_non_teaching_staff != null ? center.num_non_teaching_staff : null,
             num_other_people: center.num_other_people != null ? center.num_other_people : null,
             height_ge_28m: !!center.height_ge_28m,
+            special_evacuation: !!center.special_evacuation,
             interview_count: count,
           };
         });
