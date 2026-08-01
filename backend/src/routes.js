@@ -43,6 +43,8 @@ function sanitizeModelState(body) {
     if (Object.keys(clean).length) out.overrides[code] = clean;
   }
   if (typeof src.notes === "string") out.notes = src.notes.slice(0, 5000);
+  const w = IO.normalizeWeights(src.weights);
+  if (w) out.weights = w;
   return out;
 }
 
@@ -235,7 +237,8 @@ function buildRouter(store) {
     const interviews = await store.listInterviews(req.auth.consultancyId, campaign.id);
     const state = await store.getModelState(req.auth.consultancyId, campaign.id);
     const overrides = (state && state.overrides) || {};
-    const analysis = IO.analyze({ center: toEngineCenter(center), interviews: interviews.map((i) => ({ role: i.role, answers: i.answers })), overrides });
+    const weights = (state && state.weights) || null;
+    const analysis = IO.analyze({ center: toEngineCenter(center), interviews: interviews.map((i) => ({ role: i.role, answers: i.answers })), overrides, weights });
     res.json(analysis);
   }));
 
@@ -255,7 +258,8 @@ function buildRouter(store) {
     if (!interviews.length) fail(409, "no_data", "La campaña no tiene entrevistas.");
     const state = await store.getModelState(req.auth.consultancyId, campaign.id);
     const overrides = (state && state.overrides) || {};
-    const buffer = await buildDocxBuffer(toEngineCenter(center), interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })), overrides);
+    const weights = (state && state.weights) || null;
+    const buffer = await buildDocxBuffer(toEngineCenter(center), interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })), overrides, weights);
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "generate_document", entity: "campaign", entity_id: campaign.id, ip: ipOf(req) });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(center.name)}.docx"`);
@@ -351,7 +355,8 @@ function buildRouter(store) {
     const buffer = await buildDocxBuffer(
       data.center,
       data.interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })),
-      data.overrides
+      data.overrides,
+      data.weights
     );
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(data.center.name)}.docx"`);
@@ -433,7 +438,8 @@ function buildRouter(store) {
     if (!room.interviews.length) fail(409, "no_data", "El modelo no tiene entrevistas.");
     const st = await store.getModelStateByCode(req.auth.consultancyId, req.params.code);
     const overrides = (st && st.overrides) || {};
-    const buffer = await buildDocxBuffer(toEngineCenter(room.center), room.interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })), overrides);
+    const weights = (st && st.weights) || null;
+    const buffer = await buildDocxBuffer(toEngineCenter(room.center), room.interviews.map((i) => ({ role: i.role, answers: i.answers, comments: i.comments || {} })), overrides, weights);
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "generate_document", entity: "campaign", entity_id: room.campaign.id, ip: ipOf(req) });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     res.setHeader("Content-Disposition", `attachment; filename="Informe_${safeName(room.center.name)}.docx"`);

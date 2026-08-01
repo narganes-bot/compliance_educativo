@@ -337,14 +337,22 @@ const AUTOEVAL = [
  * @param {Array}  interviews [{ role, answers: { q1: 'si', ... }, comments: { q4: '...' } }]
  * @returns {Promise<Buffer>}
  */
-function buildDocxBuffer(center, interviews, overrides) {
+function buildDocxBuffer(center, interviews, overrides, weights) {
   center = center || {};
   interviews = interviews || [];
   overrides = overrides || {};
+  weights = weights || null;
 
-  const risks = E.computeRisks(interviews, overrides, center);
+  const risks = E.computeRisks(interviews, overrides, center, weights);
   const coverage = E.computeCoverage(interviews);
   const rd393 = (typeof E.rd393FromCenter === "function") ? E.rd393FromCenter(center) : null;
+  // Config de pesos efectivamente aplicada (la del modelo o el predeterminado).
+  const W = (weights && (weights.roles || weights.questions)) ? weights : (E.DEFAULT_WEIGHTS || { roles: {}, questions: {} });
+  const roleW = (r) => (W.roles && W.roles[r] != null) ? W.roles[r] : 1;
+  const roleLbl = (r) => E.roleLabel ? E.roleLabel(r) : r;
+  const rolesWithWeight = (E.ROLES || []).map((r) => ({ id: r.id, label: r.label, w: roleW(r.id) }));
+  const anyRoleAdj = rolesWithWeight.some((r) => r.w !== 1);
+  const qWeightEntries = W.questions ? Object.keys(W.questions) : [];
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
   const critHigh = ratedSorted.filter((r) => ["crit", "high"].includes(r.band));
@@ -558,7 +566,28 @@ const sec1 = [
   p("La construcción del modelo sigue una lógica encadenada: identificar obligaciones legales, identificar actores obligados, asociar riesgos a cada obligación, evaluar consecuencias, proponer controles alineados con ISO 37301:2021, traducirlos en protocolos, evidencias e indicadores, y organizarlo todo de forma implantable en un centro real.", { after: 100 }),
   h2("1.1. Cómo se ha elaborado el diagnóstico de este centro"),
   p(`El diagnóstico de la Parte II se ha elaborado a partir de ${interviews.length} entrevista(s) estructurada(s) realizadas al personal del centro por niveles jerárquicos, mediante un cuestionario de ${E.QUESTIONS.length} preguntas que cubren los controles esperables de los ${E.RISKS.length} riesgos del modelo. Las respuestas se agregan para estimar la probabilidad de cada riesgo; el impacto procede de la valoración experta del modelo. La cobertura de niveles condiciona la representatividad del resultado.`, { after: 100 }),
-  h2("1.2. Supuestos declarados"),
+  h2("1.2. Cómo se calcula la probabilidad (P)"),
+  p("La probabilidad no se fija de forma subjetiva: se deduce del grado de implantación de los controles que declaran las entrevistas. A cada control (pregunta) se le asigna un valor según la respuesta —Sí (control implantado) = 1; Parcial = 0,5; No = 0; No sé = 0,15, tratado como control prácticamente inexistente porque un control que el personal desconoce no protege—. Para cada riesgo se calcula una media ponderada (véase el apartado 1.4) de los valores de todas las respuestas a las preguntas que lo cubren, obteniendo un índice de cobertura de control de 0 a 1; ese índice se traduce a una escala de probabilidad de 1 a 5 de forma inversa (a mayor cobertura, menor probabilidad), mediante la fórmula P = 5 − cobertura × 4, redondeada al entero más cercano. En términos prácticos: cuantas más respuestas «No», «Parcial» o «No sé» acumula un riesgo, mayor es su probabilidad estimada.", { after: 100 }),
+  h2("1.3. Cómo se determina el impacto (I)"),
+  p("El impacto es una valoración experta previa y estable de cada riesgo, en una escala de 1 a 5, según la gravedad de sus consecuencias jurídicas (responsabilidad civil, penal, administrativa o patrimonial), del daño potencial para el menor y de la exposición reputacional del centro. No depende de las respuestas de las entrevistas —por eso un riesgo puede tener un impacto alto aunque el control esté bien implantado—: lo que cambia con las entrevistas es la probabilidad, no el impacto. La única excepción es el riesgo de autoprotección (R24), cuyo impacto sube a 5 cuando el centro entra en el ámbito del RD 393/2007, por tratarse entonces de una obligación legal directa y sancionable. El nivel de riesgo resulta de multiplicar probabilidad por impacto (P × I) y determina la banda (bajo, medio, alto o crítico).", { after: 100 }),
+  h2("1.4. Ponderación de las respuestas y respuestas divergentes"),
+  p("No todas las respuestas pesan necesariamente igual. La probabilidad se calcula como una media ponderada en la que cada respuesta tiene un peso según el rol de quien la da y, en algunas preguntas, según un ajuste específico. El criterio no es jerárquico —no se da más valor a quien ocupa un puesto superior—, sino de proximidad al control: quien ejecuta un control en el día a día suele conocer mejor si está realmente implantado. El caso típico es la difusión de un protocolo: que esté «difundido» lo acredita mejor el profesorado que debe aplicarlo que la dirección que lo aprobó; por eso, en esas preguntas, el «No» o el «No sé» del profesorado pesa más que el «Sí» de la dirección. Así, si un control existe sobre el papel pero no ha llegado a quien debe aplicarlo, la probabilidad refleja ese riesgo real en lugar de diluirlo.", { after: 80 }),
+  p("Los pesos son un punto de partida razonado y pueden ajustarse por el consultor para cada centro. Cuando dos roles responden de forma divergente a un mismo control, la contradicción no se descarta ni se promedia sin más: además de entrar en la media ponderada, se marca como discrepancia y se detalla en el apartado 9, para que el centro la verifique en campo.", { after: 80 }),
+  p("Pesos aplicados en este diagnóstico:", { bold: true, size: 19, after: 40, color: "2E4D7B" }),
+  table(["Rol", "Peso base"], [6000, 3638],
+    rolesWithWeight.map((r) => [r.label, r.w === 1 ? "1,0 (normal)" : String(r.w).replace(".", ",") + (r.w > 1 ? "  ↑" : "  ↓")]),
+    { zebra: true }),
+  ...(qWeightEntries.length ? [
+    p("Ajustes específicos por pregunta (refuerzan a quien conoce de primera mano la implantación del control):", { size: 17, after: 40, before: 60, italics: true, color: "595959" }),
+    table(["Pregunta", "Ajuste de peso por rol"], [5800, 3838],
+      qWeightEntries.map((qid) => {
+        const q = (E.QUESTIONS.find((x) => x.id === qid) || {}).q || qid;
+        const adj = Object.entries(W.questions[qid]).map(([role, w]) => `${roleLbl(role)}: ${String(w).replace(".", ",")}`).join("; ");
+        return [q, adj];
+      }), { zebra: true }),
+  ] : []),
+  note("La ponderación afecta a la probabilidad (P), no al impacto (I). Un peso 0 excluiría por completo las respuestas de ese rol para esa pregunta. Los pesos deben interpretarse como criterio metodológico orientativo, no como un juicio sobre la fiabilidad de las personas."),
+  h2("1.5. Supuestos declarados"),
   bullet("Se asume un centro educativo que atiende a alumnado menor de edad en enseñanzas no universitarias."),
   bullet("La numeración de algunos artículos del capítulo educativo de la LOPIVI y los protocolos de acoso/convivencia dependen de desarrollo normativo y de cada CCAA: se citan de forma prudente y deben verificarse."),
   bullet("Las metas e indicadores son orientativos; deben calibrarse según el tamaño y contexto del centro."),
@@ -636,18 +665,20 @@ const sec6 = [
 // 7. Matriz (landscape): heat + tabla
 const matrizRows = ratedSorted.map((r) => [
   r.code, r.title, String(r.prob) + mark(r, "prob"), String(r.impact) + mark(r, "impact"), String(r.level), BAND[r.band].label,
-  lawsShortJoin(r.laws), r.resp, r.missing.length ? r.missing.map((m) => ({ bullet: m })) : "Controles conformes según respuestas.",
+  lawsShortJoin(r.laws), r.resp, (r.actions && r.actions.length) ? r.actions.map((m) => ({ bullet: m })) : "Controles conformes según respuestas.",
 ]);
 const unratedList = risks.filter((r) => r.status === "unrated").map((r) => r.code);
 const sec7 = [
   h1("7. Matriz de riesgos personalizada"),
-  p("Probabilidad estimada a partir de los controles declarados en las entrevistas × impacto del riesgo. La ubicación de cada riesgo (código Rxx) en la matriz de calor refleja el resultado del centro.", { after: 100 }),
+  p("Este apartado sitúa cada uno de los riesgos del centro en función de su probabilidad y su impacto, calculados según la metodología del apartado 1 (probabilidad deducida de los controles declarados en las entrevistas; impacto por valoración experta). Se presenta primero de forma visual, mediante una matriz de calor, y después en detalle, con una tabla que incluye la puntuación de cada riesgo y las medidas de corrección recomendadas.", { after: 100 }),
   h2("7.1. Matriz de calor (Impacto × Probabilidad)"),
+  p("El cuadro siguiente es una representación visual de conjunto: cada casilla corresponde a una combinación de probabilidad (columnas, P = 1 a 5) e impacto (filas, I = 5 a 1), y dentro de ella aparecen los códigos (Rxx) de los riesgos del centro que caen en esa posición. El color indica la banda de nivel resultante (P × I): verde para bajo, ámbar para medio, naranja para alto y rojo para crítico. Permite ver de un vistazo dónde se concentran los riesgos y cuáles exigen atención prioritaria (esquina superior derecha).", { after: 80 }),
   heatMatrix(),
   p("Lectura: filas = Impacto (I), columnas = Probabilidad (P); el color indica la banda de nivel (P×I).", { before: 60, after: 120, size: 16, italics: true, color: "595959" }),
   h2("7.2. Detalle de riesgos priorizados"),
+  p("La tabla siguiente desglosa, riesgo a riesgo y ordenados de mayor a menor nivel, los datos que resumen su evaluación: la probabilidad (P) y el impacto (I) con su producto (Nivel) y banda, el fundamento normativo abreviado, el responsable sugerido y —en la última columna— las medidas de corrección concretas recomendadas para su centro cuando el control no está plenamente implantado. La justificación detallada de cada riesgo se desarrolla en las fichas del apartado 8.", { after: 100 }),
   table(
-    ["Cód.", "Riesgo", "P", "I", "Niv.", "Banda", "Fundamento", "Responsable", "Controles a reforzar"],
+    ["Cód.", "Riesgo", "P", "I", "Niv.", "Banda", "Fundamento", "Responsable", "Medidas de corrección recomendadas"],
     [700, 3000, 460, 460, 540, 1000, 1600, 2240, 4570],
     matrizRows.length ? matrizRows : [["—", "Sin riesgos evaluados", "—", "—", "—", "—", "—", "—", "—"]]
   ),
@@ -675,9 +706,9 @@ function fichaRiesgo(r, i) {
     out.push(labeled("Impacto en el centro y en los menores", j.impacto));
   }
   if (isRated) {
-    if (r.missing && r.missing.length) {
-      out.push(p("Controles a reforzar en su centro:", { bold: true, size: 19, after: 30, color: "2E4D7B" }));
-      r.missing.forEach((m) => out.push(bullet(m, { size: 19 })));
+    if (r.actions && r.actions.length) {
+      out.push(p("Medidas de corrección recomendadas para su centro:", { bold: true, size: 19, after: 30, color: "2E4D7B" }));
+      r.actions.forEach((m) => out.push(bullet(m, { size: 19 })));
     } else {
       out.push(p("Controles conformes según las respuestas recogidas.", { italics: true, size: 18, after: 40 }));
     }
@@ -686,8 +717,8 @@ function fichaRiesgo(r, i) {
   return out;
 }
 const sec8 = [
-  h1("8. Fichas de los riesgos: por qué importan"),
-  p("Para cada uno de los riesgos del modelo se explica por qué constituye un riesgo real (consecuencias, obligación normativa que lo respalda e impacto en el centro y en los menores) y, cuando ha sido evaluado, la situación del centro y los controles a reforzar. Los riesgos aparecen ordenados de mayor a menor nivel; al final, los aún no evaluados.", { after: 120 }),
+  h1("8. Fichas de los riesgos: por qué importan y qué hacer"),
+  p("Cada ficha explica por qué el riesgo constituye un riesgo real (consecuencias, obligación normativa que lo respalda e impacto en el centro y en los menores) y, cuando ha sido evaluado, muestra su puntuación (P × I) y las medidas de corrección concretas recomendadas para su centro —redactadas como acciones prácticas y fundamentadas, no como preguntas—. Los riesgos aparecen ordenados de mayor a menor nivel; al final, los aún no evaluados por falta de respuestas.", { after: 120 }),
   ...[...ratedSorted, ...risks.filter((r) => r.status !== "rated")].flatMap((r, i) => fichaRiesgo(r, i)),
 ];
 
@@ -695,7 +726,7 @@ const sec8 = [
 const discrepancias = risks.flatMap((r) => r.discrepancies.map((d) => ({ code: r.code, ...d })));
 const sec9 = [
   h1("9. Discrepancias entre niveles jerárquicos"),
-  p("Divergencias en las respuestas a un mismo control entre distintos roles. Suelen indicar que un control existe formalmente pero no ha llegado a todos los niveles; conviene verificarlo en campo.", { after: 100 }),
+  p("Como se explica en el apartado 1.4, todas las respuestas pesan por igual en el cálculo de la probabilidad, sin privilegiar a ningún nivel jerárquico. Cuando dos roles responden de forma divergente a un mismo control (por ejemplo, la dirección afirma que existe y el profesorado lo niega o lo desconoce), esa contradicción, además de computar en la media, se registra aquí como discrepancia. No es un error del diagnóstico, sino un hallazgo valioso: suele revelar que un control existe sobre el papel pero no ha llegado a quienes deben aplicarlo, o que su implantación es desigual. Cada discrepancia debe verificarse en campo antes de darla por resuelta. El cuadro siguiente enumera las divergencias detectadas, indicando para cada control qué respondió cada rol.", { after: 100 }),
   ...(discrepancias.length ? discrepancias.slice(0, 10).map((d) =>
     bullet([{ text: d.code + " — ", bold: true }, `"${d.q}": ` + d.detail.map((x) => `${E.roleShort(x.role)} (${E.ANSWER_LABEL[x.raw]})`).join(" vs ")])
   ) : [p("No se detectan divergencias significativas entre roles.", { italics: true })]),
@@ -809,10 +840,10 @@ const sec16 = [
 const planItems = critHigh.slice(0, 8);
 const sec17 = [
   h1("17. Plan de actuación a 90 días"),
-  p("Prioridades derivadas de los riesgos altos y críticos del diagnóstico. Cada acción indica el control a reforzar, el responsable sugerido y su fundamento normativo. Este plan constituye la concreción, para su centro, de las fases 1 a 4 del plan de implantación del apartado 18.", { after: 100 }),
+  p("Este plan concreta las prioridades derivadas de los riesgos altos y críticos del diagnóstico. Para cada uno se enumeran las medidas de corrección concretas a acometer, el responsable sugerido y el fundamento normativo. Constituye, para su centro, la traducción a acciones de las fases 1 a 4 del plan de implantación del apartado 18.", { after: 100 }),
   ...(planItems.length ? planItems.flatMap((r, i) => [
     p(`${String(i + 1).padStart(2, "0")} · ${r.code} — ${r.title}  [${BAND[r.band].label}]`, { bold: true, after: 30, before: i ? 80 : 0, size: 21 }),
-    ...(r.missing.length ? r.missing.slice(0, 4).map((m) => bullet(m)) : [bullet("Mantener y documentar los controles existentes.")]),
+    ...((r.actions && r.actions.length) ? r.actions.slice(0, 4).map((m) => bullet(m)) : [bullet("Mantener y documentar los controles existentes.")]),
     p(`Responsable: ${r.resp}. Fundamento: ${lawsShortJoin(r.laws)}.`, { after: 40, size: 17, italics: true, color: "595959" }),
   ]) : [p("No se han detectado riesgos altos o críticos con los datos actuales. Se recomienda seguir la pauta general: días 1-30, designación del Coordinador/a, certificados del art. 57, canal provisional y diagnóstico; días 31-60, política, código de conducta, protocolos y primera formación; días 61-90, vigilancia y ratios, control de proveedores, simulacro, indicadores y primera revisión por la dirección.", { italics: true })]),
 ];
@@ -978,7 +1009,7 @@ if (require.main === module) {
   if (!inFile) { console.error("Uso: node docgen.js <entrada.json> [salida.docx]"); process.exit(1); }
   const data = JSON.parse(fs.readFileSync(inFile, "utf8"));
   const out = process.argv[3] || `Informe_${safeName((data.center || {}).name)}.docx`;
-  buildDocxBuffer(data.center, data.interviews, data.overrides).then((buf) => {
+  buildDocxBuffer(data.center, data.interviews, data.overrides, data.weights).then((buf) => {
     fs.writeFileSync(out, buf);
     console.log("Generado:", out);
   });
