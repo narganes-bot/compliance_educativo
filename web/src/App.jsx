@@ -17,6 +17,7 @@ const {
   computeRisks, computeCoverage,
   CONSULTANT_ROLE,
   rd393Assessment,
+  DEFAULT_WEIGHTS,
 } = ENGINE;
 
 /* ================================================================== *
@@ -359,8 +360,8 @@ const tipoTxt = (t) => ({ publica: "pública", concertada: "concertada", privada
 const WORD_BAND = { low: "#EAF3EE", med: "#F7EED9", high: "#F7E7DB", crit: "#F4DEE2" };
 const WORD_BANDTX = { low: "#2E6B4F", med: "#8A6414", high: "#9A4A22", crit: "#8C2C3A" };
 
-function buildWordHTML(center, interviews, overrides = {}) {
-  const risks = computeRisks(interviews, overrides, center);
+function buildWordHTML(center, interviews, overrides = {}, weights = null) {
+  const risks = computeRisks(interviews, overrides, center, weights);
   const coverage = computeCoverage(interviews);
   const rated = risks.filter((r) => r.status === "rated").sort((a, b) => b.level - a.level);
   const anyOverride = rated.some((r) => r.overridden);
@@ -383,7 +384,7 @@ function buildWordHTML(center, interviews, overrides = {}) {
     <td style="border:1px solid #B8C2CC;padding:5px">${esc(r.resp)}</td></tr>`).join("");
 
   const planRows = critHigh.slice(0, 8).map((r, i) => `<p style="margin:6px 0 2px"><b>${String(i + 1).padStart(2, "0")} · ${r.code} — ${esc(r.title)}</b> [${BAND_META[r.band].label}]</p>
-    <ul style="margin:2px 0 6px">${(r.missing.length ? r.missing.slice(0, 4) : ["Mantener y documentar los controles existentes."]).map((m) => `<li>${esc(m)}</li>`).join("")}</ul>
+    <ul style="margin:2px 0 6px">${((r.actions && r.actions.length) ? r.actions.slice(0, 4) : ["Mantener y documentar los controles existentes."]).map((m) => `<li>${esc(m)}</li>`).join("")}</ul>
     <p style="margin:0 0 8px;color:#595959;font-style:italic">Responsable: ${esc(r.resp)}. Fundamento: ${r.laws.map(lawShort).join(", ") || "—"}.</p>`).join("") || "<p>No se han detectado riesgos altos o críticos con los datos actuales.</p>";
 
   const discRows = discrep.length ? "<ul>" + discrep.slice(0, 10).map((d) => `<li><b>${d.code}</b> — "${esc(d.q)}": ${d.detail.map((x) => `${esc(roleShort(x.role))} (${ANSWER_LABEL[x.raw]})`).join(" vs ")}</li>`).join("") + "</ul>" : "<p>No se detectan divergencias significativas entre roles.</p>";
@@ -421,8 +422,8 @@ function buildWordHTML(center, interviews, overrides = {}) {
   <p style="margin-top:16px;padding:8px;border-left:4px solid #C00000;color:#6B5324;font-style:italic">Documento de trabajo. Los resultados son orientativos y no constituyen asesoramiento jurídico ni sustituyen la validación profesional ni la supervisión de la Administración educativa. El marco autonómico debe verificarse en cada comunidad.</p>
   </body></html>`;
 }
-function downloadWord(center, interviews, overrides) {
-  const html = buildWordHTML(center, interviews, overrides);
+function downloadWord(center, interviews, overrides, weights) {
+  const html = buildWordHTML(center, interviews, overrides, weights);
   const blob = new Blob(["\ufeff", html], { type: "application/msword" });
   const url = URL.createObjectURL(blob); const a = document.createElement("a");
   a.href = url; a.download = `Informe_${(center.name || "centro").replace(/\W+/g, "_")}.doc`; a.click(); URL.revokeObjectURL(url);
@@ -1324,6 +1325,8 @@ function Dashboard({ code, center: centerProp, onBack }) {
   const editRef = useRef(null);
   useEffect(() => { if (editing && editRef.current) editRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); }, [editing]);
   const [overrides, setOverrides] = useState({});
+  const [weights, setWeights] = useState(null);          // null = predeterminado del motor
+  const [editingWeights, setEditingWeights] = useState(false);
   const timer = useRef(null);
   const load = useCallback(async () => {
     try { setInterviews(await store.listInterviews(code)); } catch { /* mantener lo anterior */ }
@@ -1331,10 +1334,17 @@ function Dashboard({ code, center: centerProp, onBack }) {
   }, [code]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (!auto) { if (timer.current) clearInterval(timer.current); return; } timer.current = setInterval(load, 9000); return () => timer.current && clearInterval(timer.current); }, [auto, load]);
-  // Carga los ajustes manuales guardados (P/I) al abrir el modelo.
-  useEffect(() => { let ok = true; (async () => { try { const st = await store.getModelState(code); if (ok) setOverrides((st && st.overrides) || {}); } catch { } })(); return () => { ok = false; }; }, [code]);
+  // Carga los ajustes manuales guardados (P/I y pesos) al abrir el modelo.
+  useEffect(() => { let ok = true; (async () => { try { const st = await store.getModelState(code); if (ok) { setOverrides((st && st.overrides) || {}); setWeights((st && st.weights) || null); } } catch { } })(); return () => { ok = false; }; }, [code]);
 
-  const persistOverrides = (next) => { setOverrides(next); store.saveModelState(code, { overrides: next }).catch(() => { }); };
+  // Guarda estado completo (P/I + pesos) de forma conjunta.
+  const persistState = (nextOverrides, nextWeights) => {
+    const payload = { overrides: nextOverrides };
+    if (nextWeights) payload.weights = nextWeights;
+    store.saveModelState(code, payload).catch(() => { });
+  };
+  const persistOverrides = (next) => { setOverrides(next); persistState(next, weights); };
+  const persistWeights = (next) => { setWeights(next); persistState(overrides, next); };
   const applyOverride = (rcode, field, value) => {
     const cur = overrides[rcode] || {};
     const nextRisk = { ...cur };
@@ -1351,7 +1361,7 @@ function Dashboard({ code, center: centerProp, onBack }) {
   const levelsCovered = ROLES.filter((r) => byRole[r.id]).length;
   const answeredIds = new Set(); interviews.forEach((iv) => Object.keys(iv.answers || {}).forEach((k) => answeredIds.add(k)));
   const gapCount = QUESTIONS.filter((q) => !answeredIds.has(q.id)).length;
-  const risks = computeRisks(interviews, overrides, center);
+  const risks = computeRisks(interviews, overrides, center, weights);
   const critHigh = risks.filter((r) => ["crit", "high"].includes(r.band)).sort((a, b) => b.level - a.level);
   const copy = async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { } };
   const reset = async () => { if (!window.confirm("¿Vaciar todas las entrevistas de esta sala? No se puede deshacer.")) return; await store.resetInterviews(code); load(); };
@@ -1457,24 +1467,126 @@ function Dashboard({ code, center: centerProp, onBack }) {
         </Card>
       )}
 
+      {interviews.length > 0 && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <Scale size={17} color={C.action} />
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>Ponderación de respuestas</div>
+                <div style={{ fontSize: 12, color: C.slate }}>{weights ? "Pesos personalizados para este modelo." : "Usando el predeterminado (más peso a quien aplica el control en el día a día)."}</div>
+              </div>
+            </div>
+            <button onClick={() => setEditingWeights((v) => !v)} style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Scale size={13} /> {editingWeights ? "Cerrar" : "Ajustar pesos"}
+            </button>
+          </div>
+          {editingWeights && <WeightsEditor weights={weights} onChange={persistWeights} />}
+        </Card>
+      )}
+
       {loading && !interviews.length ? (
         <Card><div style={{ display: "flex", gap: 10, alignItems: "center", color: C.slate, fontSize: 13.5 }}><Loader2 size={16} className="spin" /> Cargando entrevistas…</div></Card>
       ) : !interviews.length ? (
         <Card><Empty text="Aún no hay entrevistas. Comparte el código para que el equipo responda, o pulsa «Registrar una entrevista» para anotarlas tú. El panel se actualizará solo." /></Card>
-      ) : <Results center={center} interviews={interviews} overrides={overrides} editable onOverride={applyOverride} onResetRisk={resetRisk} serverDoc={store.mode === "api" ? () => store.downloadDocument(code, center && center.name) : null} />}
+      ) : <Results center={center} interviews={interviews} overrides={overrides} weights={weights} editable onOverride={applyOverride} onResetRisk={resetRisk} serverDoc={store.mode === "api" ? () => store.downloadDocument(code, center && center.name) : null} />}
+    </div>
+  );
+}
+
+/* ---------------------- Editor de ponderación ---------------------- */
+// Permite ajustar, por modelo, el peso base de cada rol y añadir excepciones
+// por pregunta. Parte del predeterminado del motor; se guarda con el modelo.
+function WeightsEditor({ weights, onChange }) {
+  const base = weights || DEFAULT_WEIGHTS || { roles: {}, questions: {} };
+  const roleW = (id) => (base.roles && base.roles[id] != null) ? base.roles[id] : 1;
+  const [addQ, setAddQ] = useState("");
+  const [addRole, setAddRole] = useState("");
+  const [addVal, setAddVal] = useState("1.5");
+  // Construye un objeto de pesos completo a partir del actual (para poder editar).
+  const materialize = () => ({
+    roles: Object.fromEntries(ROLES.map((r) => [r.id, roleW(r.id)])),
+    questions: base.questions ? JSON.parse(JSON.stringify(base.questions)) : {},
+  });
+  const setRoleWeight = (id, v) => {
+    const w = materialize(); const n = parseFloat(String(v).replace(",", "."));
+    w.roles[id] = Number.isFinite(n) && n >= 0 && n <= 5 ? n : 1;
+    onChange(w);
+  };
+  const addQuestionAdj = () => {
+    if (!addQ || !addRole) return;
+    const n = parseFloat(String(addVal).replace(",", ".")); if (!Number.isFinite(n) || n < 0 || n > 5) return;
+    const w = materialize(); w.questions[addQ] = { ...(w.questions[addQ] || {}), [addRole]: n };
+    onChange(w); setAddRole(""); setAddVal("1.5");
+  };
+  const removeQuestionAdj = (qid, role) => {
+    const w = materialize(); if (w.questions[qid]) { delete w.questions[qid][role]; if (!Object.keys(w.questions[qid]).length) delete w.questions[qid]; }
+    onChange(w);
+  };
+  const resetDefault = () => onChange(null);
+  const qLabel = (qid) => (QUESTIONS.find((q) => q.id === qid) || {}).q || qid;
+  const roleLbl2 = (id) => (ROLES.find((r) => r.id === id) || {}).label || id;
+  const qEntries = base.questions ? Object.entries(base.questions) : [];
+  const inp = { width: 64, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 13, textAlign: "center", fontFamily: mono };
+  const sel = { padding: "6px 8px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 12.5, background: "#fff" };
+  return (
+    <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12, lineHeight: 1.5 }}>
+        El peso multiplica la influencia de cada respuesta al calcular la probabilidad. <b>1,0</b> es peso normal; más de 1 da más importancia a ese rol; <b>0</b> lo excluye. El criterio no es jerárquico: se prima a quien vive el control de primera mano. No afecta al impacto.
+      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 8, fontFamily: mono }}>PESO BASE POR ROL</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8, marginBottom: 16 }}>
+        {ROLES.map((r) => (
+          <label key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }}>
+            <span style={{ fontSize: 12.5, color: C.ink }}>{r.label}</span>
+            <input style={inp} value={String(roleW(r.id)).replace(".", ",")} onChange={(e) => setRoleWeight(r.id, e.target.value)} inputMode="decimal" />
+          </label>
+        ))}
+      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 8, fontFamily: mono }}>AJUSTES POR PREGUNTA</div>
+      {qEntries.length ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+          {qEntries.map(([qid, rmap]) => (
+            <div key={qid} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }}>
+              <div style={{ fontSize: 12, color: C.ink, marginBottom: 4 }}><b style={{ fontFamily: mono }}>{qid}</b> · {qLabel(qid)}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {Object.entries(rmap).map(([role, w]) => (
+                  <span key={role} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, background: C.bg, borderRadius: 20, padding: "3px 6px 3px 10px" }}>
+                    {roleLbl2(role)}: <b>{String(w).replace(".", ",")}</b>
+                    <button onClick={() => removeQuestionAdj(qid, role)} title="Quitar" style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, display: "inline-flex" }}><X size={13} /></button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Sin ajustes por pregunta. Los del predeterminado (difusión, canal, simulacros…) se aplican salvo que definas los tuyos.</div>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <select style={sel} value={addQ} onChange={(e) => setAddQ(e.target.value)}>
+          <option value="">Pregunta…</option>
+          {QUESTIONS.map((q) => <option key={q.id} value={q.id}>{q.id} · {q.q.slice(0, 60)}</option>)}
+        </select>
+        <select style={sel} value={addRole} onChange={(e) => setAddRole(e.target.value)}>
+          <option value="">Rol…</option>
+          {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+        </select>
+        <input style={inp} value={addVal} onChange={(e) => setAddVal(e.target.value)} inputMode="decimal" title="Peso" />
+        <button onClick={addQuestionAdj} disabled={!addQ || !addRole} style={{ border: "none", background: (!addQ || !addRole) ? C.line : C.action, color: "#fff", borderRadius: 8, padding: "7px 12px", cursor: (!addQ || !addRole) ? "default" : "pointer", fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Plus size={13} /> Añadir ajuste</button>
+        <button onClick={resetDefault} style={{ marginLeft: "auto", border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><RefreshCw size={13} /> Restaurar predeterminado</button>
+      </div>
     </div>
   );
 }
 
 /* ------------------------- Results (modelo) ------------------------- */
-function Results({ center, interviews, overrides = {}, editable = false, onOverride = () => { }, onResetRisk = () => { }, serverDoc = null }) {
+function Results({ center, interviews, overrides = {}, weights = null, editable = false, onOverride = () => { }, onResetRisk = () => { }, serverDoc = null }) {
   const [dl, setDl] = useState(false);
   const doDownload = async () => {
-    if (!serverDoc) { downloadWord(center, interviews, overrides); return; }
+    if (!serverDoc) { downloadWord(center, interviews, overrides, weights); return; }
     setDl(true);
     try { await serverDoc(); } catch (e) { alert(e.message || "No se pudo generar el informe."); } finally { setDl(false); }
   };
-  const risks = computeRisks(interviews, overrides, center);
+  const risks = computeRisks(interviews, overrides, center, weights);
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
   // En modo editable se listan los 23 riesgos (también los que aún no tienen
