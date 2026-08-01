@@ -108,10 +108,11 @@ const localStore = {
     if (patch.num_non_teaching_staff !== undefined) next.noDocentes = patch.num_non_teaching_staff != null ? String(patch.num_non_teaching_staff) : "";
     if (patch.num_other_people !== undefined) next.otras = patch.num_other_people != null ? String(patch.num_other_people) : "";
     if (patch.height_ge_28m !== undefined) next.altura28 = !!patch.height_ge_28m;
+    if (patch.special_evacuation !== undefined) next.evacEspecial = !!patch.special_evacuation;
     await KV.set(metaKey(code), next);
     return { name: next.name, tipo: next.tipo, etapas: next.etapas || "", alumnos: next.alumnos || "",
       ccaa: next.ccaa || "", docentes: next.docentes || "", noDocentes: next.noDocentes || "",
-      otras: next.otras || "", altura28: !!next.altura28 };
+      otras: next.otras || "", altura28: !!next.altura28, evacEspecial: !!next.evacEspecial };
   },
   async listInterviews(code) { const keys = await KV.list(respPrefix(code)); const rows = await Promise.all(keys.map((k) => KV.get(k))); return rows.filter(Boolean); },
   async resetInterviews(code) { const keys = await KV.list(respPrefix(code)); await Promise.all(keys.map((k) => KV.del(k))); },
@@ -122,7 +123,9 @@ const localStore = {
       const room = await KV.get(k); if (!room) return null;
       const ivs = await this.listInterviews(room.code);
       return { code: room.code, status: "open", createdAt: room.createdAt, interviews: ivs.length,
-        center: { name: room.name, tipo: room.tipo, etapas: room.etapas || "", alumnos: room.alumnos || "" } };
+        center: { name: room.name, tipo: room.tipo, etapas: room.etapas || "", alumnos: room.alumnos || "",
+          ccaa: room.ccaa || "", docentes: room.docentes || "", noDocentes: room.noDocentes || "",
+          otras: room.otras || "", altura28: !!room.altura28, evacEspecial: !!room.evacEspecial } };
     }));
     return rows.filter(Boolean).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   },
@@ -221,6 +224,7 @@ function makeApiStore(base) {
           num_non_teaching_staff: center.noDocentes ? parseInt(center.noDocentes, 10) : null,
           num_other_people: center.otras ? parseInt(center.otras, 10) : null,
           height_ge_28m: !!center.altura28,
+          special_evacuation: !!center.evacEspecial,
         })
       });
       if (!cr.ok) throw new Error("No se pudo crear el centro.");
@@ -256,6 +260,7 @@ function makeApiStore(base) {
         noDocentes: c.num_non_teaching_staff != null ? String(c.num_non_teaching_staff) : "",
         otras: c.num_other_people != null ? String(c.num_other_people) : "",
         altura28: !!c.height_ge_28m,
+        evacEspecial: !!c.special_evacuation,
       };
     },
     async listInterviews(code) {
@@ -279,6 +284,7 @@ function makeApiStore(base) {
           noDocentes: c.num_non_teaching_staff != null ? String(c.num_non_teaching_staff) : "",
           otras: c.num_other_people != null ? String(c.num_other_people) : "",
           altura28: !!c.height_ge_28m,
+          evacEspecial: !!c.special_evacuation,
         },
       }));
     },
@@ -354,7 +360,7 @@ const WORD_BAND = { low: "#EAF3EE", med: "#F7EED9", high: "#F7E7DB", crit: "#F4D
 const WORD_BANDTX = { low: "#2E6B4F", med: "#8A6414", high: "#9A4A22", crit: "#8C2C3A" };
 
 function buildWordHTML(center, interviews, overrides = {}) {
-  const risks = computeRisks(interviews, overrides);
+  const risks = computeRisks(interviews, overrides, center);
   const coverage = computeCoverage(interviews);
   const rated = risks.filter((r) => r.status === "rated").sort((a, b) => b.level - a.level);
   const anyOverride = rated.some((r) => r.overridden);
@@ -879,7 +885,7 @@ function UsersScreen({ onBack, meId }) {
   );
 }
 function Create({ onDone, onBack }) {
-  const [form, setForm] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false });
+  const [form, setForm] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false, evacEspecial: false });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
   const create = async () => {
@@ -908,6 +914,7 @@ function rd393FromForm(form) {
     num_students: form.alumnos, num_teaching_staff: form.docentes,
     num_non_teaching_staff: form.noDocentes, num_other_people: form.otras,
     height_ge_28m: form.altura28,
+    special_evacuation: form.evacEspecial,
   });
 }
 
@@ -947,6 +954,10 @@ function CenterFields({ form, set }) {
       <label style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
         <input type="checkbox" checked={!!form.altura28} onChange={set("altura28")} style={{ width: 16, height: 16 }} />
         <span style={{ fontSize: 13 }}>La altura de evacuación del centro es igual o superior a 28 m (aprox. 10 plantas)</span>
+      </label>
+      <label style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
+        <input type="checkbox" checked={!!form.evacEspecial} onChange={set("evacEspecial")} style={{ width: 16, height: 16 }} />
+        <span style={{ fontSize: 13 }}>Centro especialmente destinado a personas con discapacidad física o psíquica o que no pueden realizar una evacuación por sus propios medios (Anexo I.e — aplica sin umbral)</span>
       </label>
       <div style={{ gridColumn: "1 / -1" }}><RD393Banner form={form} /></div>
     </div>
@@ -1119,7 +1130,7 @@ function Participant({ code, center, onBack }) {
 /* ------------------------------ Quick ------------------------------ */
 function Quick({ onBack }) {
   const [step, setStep] = useState("center");
-  const [center, setCenter] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false });
+  const [center, setCenter] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false, evacEspecial: false });
   const [interviews, setInterviews] = useState([]);
   const [adding, setAdding] = useState(false);
   const set = (k) => (e) => setCenter({ ...center, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
@@ -1242,6 +1253,7 @@ function CenterEditForm({ center, onSave, onCancel }) {
   const [noDocentes, setNoDocentes] = useState((center && center.noDocentes) || "");
   const [otras, setOtras] = useState((center && center.otras) || "");
   const [altura28, setAltura28] = useState(!!(center && center.altura28));
+  const [evacEspecial, setEvacEspecial] = useState(!!(center && center.evacEspecial));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const go = async () => {
@@ -1256,6 +1268,7 @@ function CenterEditForm({ center, onSave, onCancel }) {
         num_non_teaching_staff: noDocentes ? parseInt(noDocentes, 10) : null,
         num_other_people: otras ? parseInt(otras, 10) : null,
         height_ge_28m: altura28,
+        special_evacuation: evacEspecial,
       });
     }
     catch (e) { setErr(e.message || "No se pudieron guardar los datos."); setBusy(false); }
@@ -1283,7 +1296,11 @@ function CenterEditForm({ center, onSave, onCancel }) {
           <input type="checkbox" checked={altura28} onChange={(e) => setAltura28(e.target.checked)} style={{ width: 16, height: 16 }} />
           <span style={{ fontSize: 13 }}>La altura de evacuación del centro es igual o superior a 28 m (aprox. 10 plantas)</span>
         </label>
-        <div style={{ gridColumn: "1 / -1" }}><RD393Banner form={{ alumnos, docentes, noDocentes, otras, altura28 }} /></div>
+        <label style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
+          <input type="checkbox" checked={evacEspecial} onChange={(e) => setEvacEspecial(e.target.checked)} style={{ width: 16, height: 16 }} />
+          <span style={{ fontSize: 13 }}>Centro especialmente destinado a personas con discapacidad física o psíquica o que no pueden realizar una evacuación por sus propios medios (Anexo I.e — aplica sin umbral)</span>
+        </label>
+        <div style={{ gridColumn: "1 / -1" }}><RD393Banner form={{ alumnos, docentes, noDocentes, otras, altura28, evacEspecial }} /></div>
       </div>
       {err && <div style={{ fontSize: 12.5, color: C.crit, marginTop: 8 }}>{err}</div>}
       <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -1334,7 +1351,7 @@ function Dashboard({ code, center: centerProp, onBack }) {
   const levelsCovered = ROLES.filter((r) => byRole[r.id]).length;
   const answeredIds = new Set(); interviews.forEach((iv) => Object.keys(iv.answers || {}).forEach((k) => answeredIds.add(k)));
   const gapCount = QUESTIONS.filter((q) => !answeredIds.has(q.id)).length;
-  const risks = computeRisks(interviews, overrides);
+  const risks = computeRisks(interviews, overrides, center);
   const critHigh = risks.filter((r) => ["crit", "high"].includes(r.band)).sort((a, b) => b.level - a.level);
   const copy = async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { } };
   const reset = async () => { if (!window.confirm("¿Vaciar todas las entrevistas de esta sala? No se puede deshacer.")) return; await store.resetInterviews(code); load(); };
@@ -1457,7 +1474,7 @@ function Results({ center, interviews, overrides = {}, editable = false, onOverr
     setDl(true);
     try { await serverDoc(); } catch (e) { alert(e.message || "No se pudo generar el informe."); } finally { setDl(false); }
   };
-  const risks = computeRisks(interviews, overrides);
+  const risks = computeRisks(interviews, overrides, center);
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
   // En modo editable se listan los 23 riesgos (también los que aún no tienen
