@@ -1562,13 +1562,13 @@ function WeightsEditor({ weights, onChange }) {
         </div>
       ) : <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Sin ajustes por pregunta. Los del predeterminado (difusión, canal, simulacros…) se aplican salvo que definas los tuyos.</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <select style={sel} value={addQ} onChange={(e) => setAddQ(e.target.value)}>
+        <select style={sel} value={addQ} onChange={(e) => { setAddQ(e.target.value); setAddRole(""); }}>
           <option value="">Pregunta…</option>
           {QUESTIONS.map((q) => <option key={q.id} value={q.id}>{q.id} · {q.q.slice(0, 60)}</option>)}
         </select>
-        <select style={sel} value={addRole} onChange={(e) => setAddRole(e.target.value)}>
-          <option value="">Rol…</option>
-          {ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+        <select style={sel} value={addRole} onChange={(e) => setAddRole(e.target.value)} disabled={!addQ}>
+          <option value="">{addQ ? "Rol que la contesta…" : "Rol…"}</option>
+          {(addQ ? ROLES.filter((r) => ((QUESTIONS.find((q) => q.id === addQ) || {}).roles || []).includes(r.id)) : ROLES).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
         </select>
         <input style={inp} value={addVal} onChange={(e) => setAddVal(e.target.value)} inputMode="decimal" title="Peso" />
         <button onClick={addQuestionAdj} disabled={!addQ || !addRole} style={{ border: "none", background: (!addQ || !addRole) ? C.line : C.action, color: "#fff", borderRadius: 8, padding: "7px 12px", cursor: (!addQ || !addRole) ? "default" : "pointer", fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Plus size={13} /> Añadir ajuste</button>
