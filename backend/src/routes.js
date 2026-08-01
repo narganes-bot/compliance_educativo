@@ -19,18 +19,16 @@ const toEngineCenter = (c) => {
     noDocentes: c.num_non_teaching_staff != null ? String(c.num_non_teaching_staff) : "",
     otras: c.num_other_people != null ? String(c.num_other_people) : "",
     alturaGe28m: !!c.height_ge_28m,
+    evacuacionEspecial: !!c.special_evacuation,
   };
   center.rd393 = E.rd393Assessment({
     num_students: c.num_students, num_teaching_staff: c.num_teaching_staff,
     num_non_teaching_staff: c.num_non_teaching_staff, num_other_people: c.num_other_people,
-    height_ge_28m: c.height_ge_28m,
+    height_ge_28m: c.height_ge_28m, special_evacuation: c.special_evacuation,
   });
   return center;
 };
 
-// Sanea el estado del modelo antes de guardarlo: solo admite sobrescrituras de
-// P e I (enteros 1..5) por riesgo (Rxx) y un campo de notas opcional. Evita
-// almacenar datos arbitrarios en la columna JSONB.
 function sanitizeModelState(body) {
   const src = (body && typeof body === "object") ? body : {};
   const out = { overrides: {}, updated_at: new Date().toISOString() };
@@ -51,14 +49,11 @@ function sanitizeModelState(body) {
 function buildRouter(store) {
   const r = express.Router();
   const ipOf = (req) => req.ip || (req.socket && req.socket.remoteAddress) || null;
-  // Registro de auditoría tolerante a fallos: nunca rompe la petición.
   const audit = async (cid, entry) => { try { if (cid) await store.addAudit(cid, entry); } catch (e) { console.error("audit:", e.message); } };
   const publicLimiter = createRateLimiter(config.rateLimits.participant);
   const authLimiter = createRateLimiter(config.rateLimits.auth);
-  // Solo el propietario de la consultora puede invitar o eliminar usuarios.
   const requireOwner = (req, res, next) => { if (req.auth.role !== "owner") fail(403, "forbidden", "Solo el propietario de la consultora puede gestionar usuarios."); next(); };
 
-  /* ------------------------------ auth ------------------------------ */
   r.post("/auth/login", asyncH(async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || !password) fail(400, "missing_fields", "Email y contraseña son obligatorios.");
@@ -77,7 +72,6 @@ function buildRouter(store) {
     res.json({ user: { id: user.id, email: user.email, display_name: user.display_name, role: user.role }, consultancy: { id: consultancy.id, name: consultancy.name } });
   }));
 
-  // Cambiar la propia contraseña (verifica la actual, guarda la nueva cifrada).
   r.post("/me/password", requireAuth, asyncH(async (req, res) => {
     const current = req.body && req.body.current;
     const next = req.body && req.body.next;
@@ -95,8 +89,6 @@ function buildRouter(store) {
     res.json({ ok: true });
   }));
 
-  // Solicitar un enlace de restablecimiento por correo. La respuesta es SIEMPRE
-  // la misma exista o no el correo, para no revelar qué cuentas están registradas.
   r.post("/auth/forgot-password", authLimiter, asyncH(async (req, res) => {
     const email = ((req.body && req.body.email) || "").trim();
     if (!email) fail(400, "missing_fields", "Indica tu correo.");
@@ -104,7 +96,7 @@ function buildRouter(store) {
     if (user) {
       const rawToken = genToken();
       const expiresAt = new Date(Date.now() + config.passwordResetExpiresMinutes * 60000).toISOString();
-      await store.invalidateUserResetTokens(user.id); // cualquier enlace anterior deja de servir
+      await store.invalidateUserResetTokens(user.id);
       await store.createPasswordResetToken(user.id, hashToken(rawToken), expiresAt);
       const link = `${config.frontendUrl.replace(/\/$/, "")}/?reset_token=${rawToken}`;
       try {
@@ -115,7 +107,6 @@ function buildRouter(store) {
     res.json({ ok: true, message: "Si el correo está registrado, te hemos enviado un enlace." });
   }));
 
-  // Confirmar el restablecimiento con el token recibido por correo.
   r.post("/auth/reset-password", authLimiter, asyncH(async (req, res) => {
     const token = req.body && req.body.token;
     const next = req.body && req.body.next;
@@ -134,23 +125,18 @@ function buildRouter(store) {
     res.json({ ok: true });
   }));
 
-  /* ------------------------------ usuarios (equipo de la consultora) ------------------------------ */
-  // Lista los usuarios de la propia consultora. Solo el propietario.
   r.get("/users", requireAuth, requireOwner, asyncH(async (req, res) => {
     const users = await store.listUsers(req.auth.consultancyId);
     res.json({ users: users.map((u) => ({ id: u.id, email: u.email, display_name: u.display_name, role: u.role, created_at: u.created_at })) });
   }));
 
-  // Invita a un nuevo usuario: se crea con una contraseña provisional inutilizable
-  // y se le envía un correo (mismo mecanismo que "olvidé mi contraseña") para que
-  // fije él mismo su propia contraseña. Solo el propietario puede invitar.
   r.post("/users", requireAuth, requireOwner, asyncH(async (req, res) => {
     const email = ((req.body && req.body.email) || "").trim().toLowerCase();
     const display_name = ((req.body && req.body.display_name) || "").trim() || null;
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, "invalid_email", "Indica un correo válido.");
     const existing = await store.findUserByEmail(email);
     if (existing) fail(409, "already_exists", "Ya existe un usuario con ese correo.");
-    const unusablePassword = genToken(); // nunca se comunica; el usuario fija la suya vía el enlace
+    const unusablePassword = genToken();
     const newUser = await store.createUser(req.auth.consultancyId, { email, password_hash: await hashPassword(unusablePassword), display_name, role: "consultant" });
     const rawToken = genToken();
     const expiresAt = new Date(Date.now() + config.inviteExpiresMinutes * 60000).toISOString();
@@ -164,7 +150,6 @@ function buildRouter(store) {
     res.status(201).json({ user: { id: newUser.id, email: newUser.email, display_name: newUser.display_name, role: newUser.role } });
   }));
 
-  // Editar el nombre visible de cualquier usuario de la consultora. Solo el propietario.
   r.patch("/users/:id", requireAuth, requireOwner, asyncH(async (req, res) => {
     if (typeof (req.body && req.body.display_name) !== "string") fail(400, "missing_fields", "Indica el nombre.");
     const name = req.body.display_name.trim().slice(0, 120);
@@ -176,7 +161,6 @@ function buildRouter(store) {
     res.json({ user: { id: updated.id, email: updated.email, display_name: updated.display_name, role: updated.role } });
   }));
 
-  // Elimina el acceso de un usuario. No se puede eliminar a uno mismo ni al único propietario.
   r.delete("/users/:id", requireAuth, requireOwner, asyncH(async (req, res) => {
     if (req.params.id === req.auth.userId) fail(400, "cannot_delete_self", "No puedes eliminar tu propio usuario.");
     const target = await store.getUserById(req.params.id);
@@ -190,13 +174,12 @@ function buildRouter(store) {
     res.json({ ok: true });
   }));
 
-  /* ----------------------------- centros ----------------------------- */
   r.get("/centers", requireAuth, asyncH(async (req, res) => {
     res.json({ centers: await store.listCenters(req.auth.consultancyId) });
   }));
 
   r.post("/centers", requireAuth, asyncH(async (req, res) => {
-    const { name, ownership, stages, num_students, ccaa, num_teaching_staff, num_non_teaching_staff, num_other_people, height_ge_28m } = req.body || {};
+    const { name, ownership, stages, num_students, ccaa, num_teaching_staff, num_non_teaching_staff, num_other_people, height_ge_28m, special_evacuation } = req.body || {};
     if (!name) fail(400, "missing_fields", "El nombre del centro es obligatorio.");
     if (!["publica", "concertada", "privada"].includes(ownership)) fail(400, "invalid_ownership", "Titularidad no válida.");
     const posInt = (v) => { if (v === undefined || v === null || v === "") return null; const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : null; };
@@ -208,6 +191,7 @@ function buildRouter(store) {
       num_non_teaching_staff: posInt(num_non_teaching_staff),
       num_other_people: posInt(num_other_people),
       height_ge_28m: !!height_ge_28m,
+      special_evacuation: !!special_evacuation,
     });
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "create_center", entity: "center", entity_id: center.id, ip: ipOf(req) });
     res.status(201).json({ center });
@@ -219,13 +203,10 @@ function buildRouter(store) {
     res.json({ center });
   }));
 
-  /* ----------------------- modelos guardados ------------------------- */
-  // Lista de modelos (campañas) de la consultoría, para la pantalla "Mis modelos".
   r.get("/campaigns", requireAuth, asyncH(async (req, res) => {
     res.json({ campaigns: await store.listCampaigns(req.auth.consultancyId) });
   }));
 
-  /* ---------------------------- campañas ----------------------------- */
   r.post("/centers/:id/campaigns", requireAuth, asyncH(async (req, res) => {
     const center = await store.getCenter(req.auth.consultancyId, req.params.id);
     if (!center) fail(404, "not_found", "Centro no encontrado.");
@@ -234,7 +215,6 @@ function buildRouter(store) {
     res.status(201).json({ campaign: { id: campaign.id, code: campaign.code, status: campaign.status } });
   }));
 
-  // Estado + participación
   r.get("/campaigns/:id", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
     if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
@@ -248,7 +228,6 @@ function buildRouter(store) {
     });
   }));
 
-  // Modelo calculado (motor en servidor)
   r.get("/campaigns/:id/model", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
     if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
@@ -260,7 +239,6 @@ function buildRouter(store) {
     res.json(analysis);
   }));
 
-  // Exporta el JSON agregado (alimenta el generador de .docx)
   r.get("/campaigns/:id/export", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
     if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
@@ -269,8 +247,6 @@ function buildRouter(store) {
     res.json({ center: toEngineCenter(center), interviews: interviews.map((i) => ({ role: i.role, alias: i.alias, answers: i.answers })), generatedAt: new Date().toISOString() });
   }));
 
-  // Genera el informe .docx personalizado (motor + generador en servidor).
-  // Se pasan también los comentarios de las respuestas para que aparezcan en el informe.
   r.post("/campaigns/:id/document", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
     if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
@@ -286,7 +262,6 @@ function buildRouter(store) {
     res.send(buffer);
   }));
 
-  // Enlaces de participante
   r.post("/campaigns/:id/links", requireAuth, asyncH(async (req, res) => {
     const campaign = await store.getCampaign(req.auth.consultancyId, req.params.id);
     if (!campaign) fail(404, "not_found", "Campaña no encontrada.");
@@ -314,7 +289,6 @@ function buildRouter(store) {
     res.json({ ok: true });
   }));
 
-  /* ------------------------ participante (público) ------------------------ */
   r.get("/p/:token", asyncH(async (req, res) => {
     const ctx = await store.getPublicByToken(req.params.token);
     if (!ctx) fail(404, "not_found", "Enlace no válido.");
@@ -346,15 +320,12 @@ function buildRouter(store) {
     }
   }));
 
-  /* ------------------------ sala por código (app) ------------------------ */
-  // Público: información mínima de la sala (para "unirse con el código")
   r.get("/rooms/:code/public", publicLimiter, asyncH(async (req, res) => {
     const room = await store.getRoomPublic(req.params.code);
     if (!room) fail(404, "not_found", "Sala no encontrada.");
     res.json(room);
   }));
 
-  // Público: envío de entrevista por código de sala
   r.post("/rooms/:code/interview", publicLimiter, asyncH(async (req, res) => {
     const iv = IO.normalizeInterview(req.body || {});
     if (!iv.role) fail(400, "invalid_role", "Rol no válido.");
@@ -370,13 +341,6 @@ function buildRouter(store) {
     }
   }));
 
-  // Público: informe .docx completo para el modo rápido/demo. No hay sala ni
-  // datos guardados en la base de datos — el centro, las entrevistas y los
-  // ajustes manuales llegan enteros en la petición y se descartan en cuanto
-  // se genera el documento (nada se persiste). Reutiliza el mismo generador
-  // (docgen.js) que el informe del panel de sala, para que el resultado sea
-  // idéntico en todos los modos. Limitado por IP para evitar abuso, ya que
-  // no requiere haber iniciado sesión.
   r.post("/document", publicLimiter, asyncH(async (req, res) => {
     const body = req.body || {};
     if (Array.isArray(body.interviews) && body.interviews.length > 60) {
@@ -394,7 +358,6 @@ function buildRouter(store) {
     res.send(buffer);
   }));
 
-  // Autenticado: editar una entrevista ya enviada (respuestas, comentarios, rol, alias)
   r.put("/rooms/:code/interview/:id", requireAuth, asyncH(async (req, res) => {
     const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
     if (!room || !room.campaign) fail(404, "not_found", "Sala no encontrada.");
@@ -409,7 +372,6 @@ function buildRouter(store) {
     res.json({ ok: true });
   }));
 
-  // Autenticado: panel de la sala (centro + entrevistas) para el coordinador
   r.get("/rooms/:code", requireAuth, asyncH(async (req, res) => {
     const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
     if (!room) fail(404, "not_found", "Sala no encontrada.");
@@ -420,14 +382,12 @@ function buildRouter(store) {
     });
   }));
 
-  // Autenticado: leer los ajustes del modelo (P/I manuales) por código
   r.get("/rooms/:code/state", requireAuth, asyncH(async (req, res) => {
     const state = await store.getModelStateByCode(req.auth.consultancyId, req.params.code);
     if (state === undefined) fail(404, "not_found", "Modelo no encontrado.");
     res.json({ state: state || { overrides: {} } });
   }));
 
-  // Autenticado: guardar los ajustes del modelo (P/I manuales) por código
   r.put("/rooms/:code/state", requireAuth, asyncH(async (req, res) => {
     const clean = sanitizeModelState(req.body);
     const saved = await store.saveModelStateByCode(req.auth.consultancyId, req.params.code, clean);
@@ -436,7 +396,6 @@ function buildRouter(store) {
     res.json({ state: saved });
   }));
 
-  // Autenticado: editar los datos del centro (nombre, titularidad, etapas, alumnado)
   r.patch("/rooms/:code/center", requireAuth, asyncH(async (req, res) => {
     const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
     if (!room || !room.center) fail(404, "not_found", "Sala no encontrada.");
@@ -452,6 +411,7 @@ function buildRouter(store) {
     if (b.num_non_teaching_staff !== undefined) patch.num_non_teaching_staff = posInt(b.num_non_teaching_staff);
     if (b.num_other_people !== undefined) patch.num_other_people = posInt(b.num_other_people);
     if (b.height_ge_28m !== undefined) patch.height_ge_28m = !!b.height_ge_28m;
+    if (b.special_evacuation !== undefined) patch.special_evacuation = !!b.special_evacuation;
     if (!Object.keys(patch).length) fail(400, "no_changes", "No hay cambios que guardar.");
     const updated = await store.updateCenter(req.auth.consultancyId, room.center.id, patch);
     if (!updated) fail(404, "not_found", "Centro no encontrado.");
@@ -462,12 +422,11 @@ function buildRouter(store) {
         num_students: updated.num_students, ccaa: updated.ccaa,
         num_teaching_staff: updated.num_teaching_staff, num_non_teaching_staff: updated.num_non_teaching_staff,
         num_other_people: updated.num_other_people, height_ge_28m: updated.height_ge_28m,
+        special_evacuation: updated.special_evacuation,
       },
     });
   }));
 
-  // Autenticado: informe .docx completo (docgen.js) por código de sala.
-  // Se pasan también los comentarios de las respuestas para que aparezcan en el informe.
   r.post("/rooms/:code/document", requireAuth, asyncH(async (req, res) => {
     const room = await store.getRoomForTenant(req.auth.consultancyId, req.params.code);
     if (!room || !room.campaign) fail(404, "not_found", "Modelo no encontrado.");
@@ -481,7 +440,6 @@ function buildRouter(store) {
     res.send(buffer);
   }));
 
-  // Autenticado: eliminar el modelo completo (campaña + entrevistas en cascada)
   r.delete("/rooms/:code", requireAuth, asyncH(async (req, res) => {
     const done = await store.deleteCampaignByCode(req.auth.consultancyId, req.params.code);
     if (!done) fail(404, "not_found", "Modelo no encontrado.");
@@ -489,7 +447,6 @@ function buildRouter(store) {
     res.json({ ok: true });
   }));
 
-  // Autenticado: vaciar entrevistas de la sala por código
   r.delete("/rooms/:code/responses", requireAuth, asyncH(async (req, res) => {
     const done = await store.resetByCodeForTenant(req.auth.consultancyId, req.params.code);
     if (!done) fail(404, "not_found", "Sala no encontrada.");
@@ -497,7 +454,6 @@ function buildRouter(store) {
     res.json({ ok: true });
   }));
 
-  /* ------------------------------ auditoría ------------------------------ */
   r.get("/audit", requireAuth, asyncH(async (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
     res.json({ entries: await store.listAudit(req.auth.consultancyId, { limit }) });
