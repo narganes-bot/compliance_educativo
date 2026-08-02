@@ -1501,20 +1501,22 @@ function WeightsEditor({ weights, onChange }) {
   // Solo se guardan los repartos PERSONALIZADOS; el resto de preguntas usa el
   // reparto por defecto del motor (fusión en resolveWeights).
   const customQ = (weights && weights.questions && typeof weights.questions === "object") ? weights.questions : {};
-  const [addQ, setAddQ] = useState("");
+  const [showAll, setShowAll] = useState(false);       // ver todas las preguntas o solo las personalizadas
+  const [expanded, setExpanded] = useState(() => new Set()); // preguntas abiertas para editar
   const materialize = () => ({ questions: JSON.parse(JSON.stringify(customQ)) });
   const qRoles = (qid) => ((QUESTIONS.find((q) => q.id === qid) || {}).roles) || [];
-  // Empieza a personalizar una pregunta: prefija el reparto actual en % (suma 100).
-  const addQuestionSplit = () => {
-    if (!addQ) return;
-    const w = materialize();
-    if (!w.questions[addQ]) {
-      const inf = questionInfluence(addQ, weights);
-      w.questions[addQ] = {};
-      inf.forEach((r) => { w.questions[addQ][r.role] = Math.round(r.share * 100); });
+  // Abre una pregunta para editar; si aún no está personalizada, la inicializa
+  // con su reparto por defecto (en % que suman 100).
+  const personalize = (qid) => {
+    if (!customQ[qid]) {
+      const w = materialize();
+      w.questions[qid] = {};
+      questionInfluence(qid, weights).forEach((r) => { w.questions[qid][r.role] = Math.round(r.share * 100); });
+      onChange(w);
     }
-    onChange(w); setAddQ("");
+    setExpanded((prev) => { const n = new Set(prev); n.add(qid); return n; });
   };
+  const hide = (qid) => setExpanded((prev) => { const n = new Set(prev); n.delete(qid); return n; });
   // Cambia el % de un rol dentro del reparto de una pregunta (se normaliza al calcular).
   const setQuestionShare = (qid, role, v) => {
     const w = materialize();
@@ -1523,56 +1525,72 @@ function WeightsEditor({ weights, onChange }) {
     w.questions[qid][role] = Number.isFinite(n) && n >= 0 && n <= 100 ? n : 0;
     onChange(w);
   };
-  const removeQuestionSplit = (qid) => { const w = materialize(); delete w.questions[qid]; onChange(w); };
-  const resetDefault = () => onChange(null);
+  const resetQuestion = (qid) => { const w = materialize(); delete w.questions[qid]; onChange(w); hide(qid); };
+  const resetDefault = () => { onChange(null); setExpanded(new Set()); };
   const qLabel = (qid) => (QUESTIONS.find((q) => q.id === qid) || {}).q || qid;
   const roleLbl2 = (id) => (ROLES.find((r) => r.id === id) || {}).label || id;
-  const qEntries = Object.entries(customQ);
-  const availableToAdd = QUESTIONS.filter((q) => !customQ[q.id]);
-  const inp = { width: 64, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 13, textAlign: "center", fontFamily: mono };
-  const sel = { padding: "6px 8px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 12.5, background: "#fff" };
+  const nCustom = Object.keys(customQ).length;
+  // Lista a mostrar: todas, o solo las personalizadas (+ las abiertas para editar).
+  const listQ = QUESTIONS.filter((q) => showAll || customQ[q.id] || expanded.has(q.id)).map((q) => q.id);
+  const inp = { width: 52, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 13, textAlign: "center", fontFamily: mono };
+  const btn = (bg, color, border) => ({ border: border || "none", background: bg, color, borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" });
   return (
     <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
       <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12, lineHeight: 1.5 }}>
         La probabilidad de cada riesgo es una media ponderada de las respuestas. Para cada pregunta, el <b>reparto de influencia</b> indica qué porcentaje aporta cada rol que la contesta (siempre suma 100%). El criterio no es jerárquico: se prima a quien vive el control de primera mano. No afecta al impacto.
       </div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 4, fontFamily: mono }}>REPARTO DE INFLUENCIA POR PREGUNTA (%)</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, fontFamily: mono }}>REPARTO DE INFLUENCIA POR PREGUNTA (%)</div>
+        <button onClick={() => setShowAll((v) => !v)} style={btn(C.surface, C.navy, `1px solid ${C.line}`)}>
+          {showAll ? <ChevronRight size={14} style={{ transform: "rotate(90deg)" }} /> : <ChevronRight size={14} />}
+          {showAll ? "Ver solo personalizadas" : "Ver todas las preguntas"}
+        </button>
+      </div>
       <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Las preguntas que no personalices usan el reparto por defecto. Al personalizar una, reparte el 100% entre los roles que la contestan; si no suman exactamente 100, se ajustan solos de forma proporcional.</div>
-      {qEntries.length ? (
+      {listQ.length ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-          {qEntries.map(([qid, rmap]) => {
+          {listQ.map((qid) => {
             const roles = qRoles(qid);
+            const isCustom = !!customQ[qid];
+            const isExp = expanded.has(qid);
+            const rmap = customQ[qid] || {};
             const sum = roles.reduce((s, role) => s + (Number(rmap[role]) || 0), 0);
             return (
-            <div key={qid} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }}>
+            <div key={qid} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${isCustom ? hexA(C.action, 0.5) : C.line}`, background: "#fff" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
-                <div style={{ fontSize: 12, color: C.ink }}><b style={{ fontFamily: mono }}>{qid}</b> · {qLabel(qid)}</div>
-                <button onClick={() => removeQuestionSplit(qid)} title="Quitar personalización (volver al peso base)" style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, whiteSpace: "nowrap" }}><X size={13} /> Quitar</button>
+                <div style={{ fontSize: 12, color: C.ink }}>
+                  <b style={{ fontFamily: mono }}>{qid}</b> · {qLabel(qid)}
+                  {isCustom && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: C.action, background: hexA(C.action, 0.1), borderRadius: 20, padding: "1px 7px" }}>PERSONALIZADA</span>}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  {isExp
+                    ? <button onClick={() => hide(qid)} title="Cerrar la edición (mantiene los valores)" style={btn(C.surface, C.slate, `1px solid ${C.line}`)}><X size={13} /> Ocultar</button>
+                    : <button onClick={() => personalize(qid)} style={btn(C.action, "#fff")}><Pencil size={13} /> {isCustom ? "Editar" : "Personalizar"}</button>}
+                  {isCustom && <button onClick={() => resetQuestion(qid)} title="Volver al reparto por defecto de esta pregunta" style={btn(C.surface, C.slate, `1px solid ${C.line}`)}><RefreshCw size={12} /> Restablecer</button>}
+                </div>
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                {roles.map((role) => (
-                  <label key={role} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.ink }}>
-                    {roleLbl2(role).split(" / ")[0]}
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-                      <input style={{ ...inp, width: 52 }} value={rmap[role] != null ? String(rmap[role]).replace(".", ",") : ""} onChange={(e) => setQuestionShare(qid, role, e.target.value)} inputMode="decimal" />
-                      <span style={{ color: C.slate }}>%</span>
-                    </span>
-                  </label>
-                ))}
-                <span style={{ fontSize: 11.5, color: Math.round(sum) === 100 ? C.low : C.med, fontWeight: 600 }}>suma {Math.round(sum)}%</span>
-              </div>
+              {isExp && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                  {roles.map((role) => (
+                    <label key={role} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.ink }}>
+                      {roleLbl2(role).split(" / ")[0]}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                        <input style={inp} value={rmap[role] != null ? String(rmap[role]).replace(".", ",") : ""} onChange={(e) => setQuestionShare(qid, role, e.target.value)} inputMode="decimal" />
+                        <span style={{ color: C.slate }}>%</span>
+                      </span>
+                    </label>
+                  ))}
+                  <span style={{ fontSize: 11.5, color: Math.round(sum) === 100 ? C.low : C.med, fontWeight: 600 }}>suma {Math.round(sum)}%</span>
+                </div>
+              )}
               <InfluenceBar qid={qid} weights={weights} />
             </div>
           ); })}
         </div>
-      ) : <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Ninguna pregunta personalizada. Se aplican los repartos del predeterminado (difusión, canal, simulacros…). Personaliza una abajo.</div>}
+      ) : <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>No has personalizado ninguna pregunta; se aplican los repartos por defecto. Pulsa «Ver todas las preguntas» para revisarlas y personalizar las que quieras.</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <select style={sel} value={addQ} onChange={(e) => setAddQ(e.target.value)}>
-          <option value="">Personalizar el reparto de una pregunta…</option>
-          {availableToAdd.map((q) => <option key={q.id} value={q.id}>{q.id} · {q.q.slice(0, 60)}</option>)}
-        </select>
-        <button onClick={addQuestionSplit} disabled={!addQ} style={{ border: "none", background: !addQ ? C.line : C.action, color: "#fff", borderRadius: 8, padding: "7px 12px", cursor: !addQ ? "default" : "pointer", fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Plus size={13} /> Personalizar</button>
-        <button onClick={resetDefault} style={{ marginLeft: "auto", border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><RefreshCw size={13} /> Restaurar predeterminado</button>
+        <span style={{ fontSize: 11.5, color: C.slate }}>{nCustom ? `${nCustom} pregunta(s) personalizada(s)` : "Sin personalizaciones"}</span>
+        {nCustom > 0 && <button onClick={resetDefault} style={{ ...btn(C.surface, C.navy, `1px solid ${C.line}`), marginLeft: "auto" }}><RefreshCw size={13} /> Restaurar todo el predeterminado</button>}
       </div>
     </div>
   );
