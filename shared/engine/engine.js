@@ -137,6 +137,58 @@ const QUESTION_ACTIONS = {
   q32: "Asignar y difundir las funciones del personal en caso de emergencia (alarma, evacuación, ayuda a personas con movilidad reducida, primeros auxilios) y formarlo periódicamente.",
 };
 
+// Propósito de cada pregunta: qué comprueba y por qué se pregunta. Se muestra
+// como ayuda en la aplicación y se recoge en el anexo del cuestionario del
+// informe, junto al riesgo asociado (q.risks) y la norma (q.laws).
+const QUESTION_HELP = {
+  q1: "Comprueba que el centro ha designado formalmente y por escrito al Coordinador/a de Bienestar y Protección, figura obligatoria y eje de todo el sistema de protección.",
+  q2: "Verifica que esa figura cuenta con formación específica y acreditada, no solo con el nombramiento.",
+  q3: "Comprueba que existe una Política de protección de la infancia aprobada por la titularidad y publicada a la comunidad educativa.",
+  q4: "Distingue entre tener protocolos aprobados y que estén realmente implantados y conocidos por quien debe aplicarlos.",
+  q5: "Verifica que existe un código de conducta y que lo ha firmado todo el personal y los terceros con contacto con menores.",
+  q6: "Comprueba que el protocolo frente a la violencia y el acoso no solo existe, sino que está operativo y se aplica.",
+  q7: "Verifica que hay una respuesta estructurada ante el ciberacoso y una norma de uso de dispositivos y redes.",
+  q8: "Comprueba el protocolo específico ante sospecha de abuso sexual, con escucha única, comunicación inmediata y no revictimización.",
+  q9: "Verifica que todo el personal con contacto habitual con menores tiene el certificado negativo de delitos sexuales vigente.",
+  q10: "Extiende esa verificación a proveedores, monitores y voluntariado con contacto habitual con el alumnado.",
+  q11: "Comprueba que existe un canal de comunicación/denuncia accesible y difundido para comunicar indicios.",
+  q12: "Verifica que el personal conoce el deber de comunicación y sabe a quién y cómo comunicar.",
+  q13: "Comprueba la trazabilidad documental: que se registran y custodian las comunicaciones, decisiones y derivaciones.",
+  q14: "Verifica que la formación es sistemática (plan anual) y que se registra la asistencia.",
+  q15: "Comprueba la cobertura de vigilancia y los ratios en los momentos y espacios de mayor riesgo (patios, comedor, transporte, salidas).",
+  q16: "Verifica que las actividades extraescolares y salidas se organizan con evaluación de riesgos, ratios, autorizaciones y seguros.",
+  q17: "Comprueba las medidas de seguridad en el transporte escolar (acompañante y control de listas).",
+  q18: "Verifica la gestión de alérgenos y la seguridad alimentaria, así como la supervisión del alumnado en el comedor.",
+  q19: "Comprueba que los datos personales se tratan con base jurídica y medidas de seguridad conforme al RGPD.",
+  q20: "Verifica la confidencialidad: que el acceso a información sensible se limita según el principio de necesidad de conocer.",
+  q21: "Comprueba el cumplimiento en materia de Delegado de Protección de Datos (designación o evaluación de su necesidad).",
+  q22: "Verifica que existen cauces definidos de coordinación con servicios sociales, FCSE y Fiscalía de Menores para derivar casos.",
+  q23: "Comprueba que el sistema se revisa y mejora mediante auditoría o revisión interna al menos anual.",
+  q24: "Verifica la preparación ante una crisis: plan de gestión de crisis y comunicación.",
+  q25: "Comprueba el compromiso real de la titularidad: asignación de recursos y presupuesto al sistema de protección.",
+  q26: "Verifica que la dirección ejerce una supervisión activa y documentada del sistema.",
+  q27: "Comprueba que el centro tiene un plan de convivencia actualizado y aplicado (art. 124 LOE).",
+  q28: "Verifica la actuación específica cuando un menor es víctima de violencia de género en su entorno.",
+  q29: "Comprueba que se aplican los protocolos autonómicos vigentes de acoso, ciberacoso y maltrato de la CCAA.",
+  q30: "Verifica la existencia y, cuando es exigible, el registro del Plan de Autoprotección (RD 393/2007).",
+  q31: "Comprueba que la evacuación se practica de verdad: al menos un simulacro anual registrado.",
+  q32: "Verifica que el personal conoce sus funciones en caso de emergencia (alarma, evacuación, ayuda a personas con movilidad reducida, primeros auxilios).",
+};
+
+// Devuelve la ficha completa de una pregunta: número, texto, propósito, riesgos
+// asociados (código y título) y normas donde se regula (id y etiqueta).
+function questionMeta(qid) {
+  const q = QUESTIONS.find((x) => x.id === qid);
+  if (!q) return null;
+  return {
+    id: q.id,
+    q: q.q,
+    purpose: QUESTION_HELP[qid] || "",
+    risks: (q.risks || []).map((code) => { const r = RISKS.find((x) => x.code === code); return { code, title: r ? r.title : code }; }),
+    laws: (q.laws || []).map((id) => ({ id, label: lawLabel(id) })),
+  };
+}
+
 const ANSWER_VALUE = { si: 1, parcial: 0.5, no: 0, ns: 0.15 };
 const ANSWER_LABEL = { si: "Sí", parcial: "Parcial", no: "No", ns: "No sé" };
 const bandOf = (level) => (level <= 4 ? "low" : level <= 10 ? "med" : level <= 15 ? "high" : "crit");
@@ -334,7 +386,7 @@ function rd393Assessment(center) {
 
 module.exports = {
   LAW_CATALOG, LAW_LEVELS, lawShort, lawLabel, ROLES, roleLabel, roleShort,
-  RISKS, QUESTIONS, QUESTION_ACTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
+  RISKS, QUESTIONS, QUESTION_ACTIONS, QUESTION_HELP, questionMeta, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
   rd393Assessment, rd393FromCenter, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
   DEFAULT_WEIGHTS, resolveWeights, effectiveWeight, questionInfluence,
