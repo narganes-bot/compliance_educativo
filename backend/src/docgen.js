@@ -581,12 +581,11 @@ const sec1 = [
     rolesWithWeight.map((r) => [r.label, r.w === 1 ? "1,0 (normal)" : String(r.w).replace(".", ",") + (r.w > 1 ? "  ↑" : "  ↓")]),
     { zebra: true }),
   ...(qWeightEntries.length ? [
-    p("Ajustes específicos por pregunta (refuerzan a quien conoce de primera mano la implantación del control). La última columna traduce esos pesos a reparto de influencia: qué porcentaje del resultado aporta cada rol que contesta la pregunta; siempre suma 100%.", { size: 17, after: 40, before: 60, italics: true, color: "595959" }),
-    table(["Pregunta", "Ajuste de peso por rol", "Reparto de influencia (suma 100%)"], [4300, 2669, 2669],
+    p("Preguntas con reparto propio (se refuerza a quien conoce de primera mano la implantación del control). El reparto indica qué porcentaje del resultado aporta cada rol que contesta la pregunta y siempre suma 100%:", { size: 17, after: 40, before: 60, italics: true, color: "595959" }),
+    table(["Pregunta", "Reparto de influencia (suma 100%)"], [5638, 4000],
       qWeightEntries.map((qid) => {
         const q = (E.QUESTIONS.find((x) => x.id === qid) || {}).q || qid;
-        const adj = Object.entries(W.questions[qid]).map(([role, w]) => `${roleLbl(role)}: ${String(w).replace(".", ",")}`).join("; ");
-        return [q, adj, inflStr(qid)];
+        return [q, inflStr(qid)];
       }), { zebra: true }),
   ] : []),
   note("La ponderación afecta a la probabilidad (P), no al impacto (I). Un peso 0 excluiría por completo las respuestas de ese rol para esa pregunta. La cuota de influencia de cada rol es su peso dividido entre la suma de los pesos de quienes contestan la pregunta, por lo que las cuotas siempre suman el 100% (el reparto completo de las 32 preguntas figura en el Anexo B). Los pesos son criterio metodológico orientativo, no un juicio sobre la fiabilidad de las personas."),
