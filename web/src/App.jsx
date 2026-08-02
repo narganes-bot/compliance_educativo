@@ -1513,28 +1513,41 @@ function WeightsEditor({ weights, onChange }) {
     w.roles[id] = Number.isFinite(n) && n >= 0 && n <= 5 ? n : 1;
     onChange(w);
   };
-  const addQuestionAdj = () => {
-    if (!addQ || !addRole) return;
-    const n = parseFloat(String(addVal).replace(",", ".")); if (!Number.isFinite(n) || n < 0 || n > 5) return;
-    const w = materialize(); w.questions[addQ] = { ...(w.questions[addQ] || {}), [addRole]: n };
-    onChange(w); setAddRole(""); setAddVal("1.5");
+  const qRoles = (qid) => ((QUESTIONS.find((q) => q.id === qid) || {}).roles) || [];
+  // Empieza a personalizar una pregunta: prefija el reparto actual en % (suma 100).
+  const addQuestionSplit = () => {
+    if (!addQ) return;
+    const w = materialize();
+    if (!w.questions[addQ]) {
+      const inf = questionInfluence(addQ, weights);
+      w.questions[addQ] = {};
+      inf.forEach((r) => { w.questions[addQ][r.role] = Math.round(r.share * 100); });
+    }
+    onChange(w); setAddQ("");
   };
-  const removeQuestionAdj = (qid, role) => {
-    const w = materialize(); if (w.questions[qid]) { delete w.questions[qid][role]; if (!Object.keys(w.questions[qid]).length) delete w.questions[qid]; }
+  // Cambia el % de un rol dentro del reparto de una pregunta (se normaliza al calcular).
+  const setQuestionShare = (qid, role, v) => {
+    const w = materialize();
+    if (!w.questions[qid]) w.questions[qid] = {};
+    const n = parseFloat(String(v).replace(",", "."));
+    w.questions[qid][role] = Number.isFinite(n) && n >= 0 && n <= 100 ? n : 0;
     onChange(w);
   };
+  const removeQuestionSplit = (qid) => { const w = materialize(); delete w.questions[qid]; onChange(w); };
   const resetDefault = () => onChange(null);
   const qLabel = (qid) => (QUESTIONS.find((q) => q.id === qid) || {}).q || qid;
   const roleLbl2 = (id) => (ROLES.find((r) => r.id === id) || {}).label || id;
   const qEntries = base.questions ? Object.entries(base.questions) : [];
+  const availableToAdd = QUESTIONS.filter((q) => !(base.questions && base.questions[q.id]));
   const inp = { width: 64, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 13, textAlign: "center", fontFamily: mono };
   const sel = { padding: "6px 8px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 12.5, background: "#fff" };
   return (
     <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
       <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12, lineHeight: 1.5 }}>
-        El peso multiplica la influencia de cada respuesta al calcular la probabilidad. <b>1,0</b> es peso normal; más de 1 da más importancia a ese rol; <b>0</b> lo excluye. El criterio no es jerárquico: se prima a quien vive el control de primera mano. No afecta al impacto.
+        La probabilidad de cada riesgo es una media ponderada de las respuestas. Hay dos niveles de ajuste: el <b>peso base por rol</b> (multiplicador general) y el <b>reparto por pregunta</b> (en % que suman 100). El criterio no es jerárquico: se prima a quien vive el control de primera mano. Nada de esto afecta al impacto.
       </div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 8, fontFamily: mono }}>PESO BASE POR ROL</div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 4, fontFamily: mono }}>PESO BASE POR ROL</div>
+      <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Multiplicador general (1,0 = normal). Fija el reparto de las preguntas que no personalices abajo.</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8, marginBottom: 16 }}>
         {ROLES.map((r) => (
           <label key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }}>
@@ -1543,44 +1556,44 @@ function WeightsEditor({ weights, onChange }) {
           </label>
         ))}
       </div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 8, fontFamily: mono }}>AJUSTES POR PREGUNTA</div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 4, fontFamily: mono }}>REPARTO DE INFLUENCIA POR PREGUNTA (%)</div>
+      <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Para las preguntas que personalices, reparte el 100% entre los roles que la contestan. Escribe los porcentajes; si no suman exactamente 100, se ajustan solos de forma proporcional.</div>
       {qEntries.length ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-          {qEntries.map(([qid, rmap]) => (
-            <div key={qid} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }}>
-              <div style={{ fontSize: 12, color: C.ink, marginBottom: 4 }}><b style={{ fontFamily: mono }}>{qid}</b> · {qLabel(qid)}</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {Object.entries(rmap).map(([role, w]) => (
-                  <span key={role} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, background: C.bg, borderRadius: 20, padding: "3px 6px 3px 10px" }}>
-                    {roleLbl2(role)}: <b>{String(w).replace(".", ",")}</b>
-                    <button onClick={() => removeQuestionAdj(qid, role)} title="Quitar" style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, display: "inline-flex" }}><X size={13} /></button>
-                  </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          {qEntries.map(([qid, rmap]) => {
+            const roles = qRoles(qid);
+            const sum = roles.reduce((s, role) => s + (Number(rmap[role]) || 0), 0);
+            return (
+            <div key={qid} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: C.ink }}><b style={{ fontFamily: mono }}>{qid}</b> · {qLabel(qid)}</div>
+                <button onClick={() => removeQuestionSplit(qid)} title="Quitar personalización (volver al peso base)" style={{ border: "none", background: "transparent", cursor: "pointer", color: C.slate, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, whiteSpace: "nowrap" }}><X size={13} /> Quitar</button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                {roles.map((role) => (
+                  <label key={role} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: C.ink }}>
+                    {roleLbl2(role).split(" / ")[0]}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                      <input style={{ ...inp, width: 52 }} value={rmap[role] != null ? String(rmap[role]).replace(".", ",") : ""} onChange={(e) => setQuestionShare(qid, role, e.target.value)} inputMode="decimal" />
+                      <span style={{ color: C.slate }}>%</span>
+                    </span>
+                  </label>
                 ))}
+                <span style={{ fontSize: 11.5, color: Math.round(sum) === 100 ? C.low : C.med, fontWeight: 600 }}>suma {Math.round(sum)}%</span>
               </div>
               <InfluenceBar qid={qid} weights={weights} />
             </div>
-          ))}
+          ); })}
         </div>
-      ) : <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Sin ajustes por pregunta. Los del predeterminado (difusión, canal, simulacros…) se aplican salvo que definas los tuyos.</div>}
+      ) : <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Ninguna pregunta personalizada. Se aplican los repartos del predeterminado (difusión, canal, simulacros…). Personaliza una abajo.</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <select style={sel} value={addQ} onChange={(e) => { setAddQ(e.target.value); setAddRole(""); }}>
-          <option value="">Pregunta…</option>
-          {QUESTIONS.map((q) => <option key={q.id} value={q.id}>{q.id} · {q.q.slice(0, 60)}</option>)}
+        <select style={sel} value={addQ} onChange={(e) => setAddQ(e.target.value)}>
+          <option value="">Personalizar el reparto de una pregunta…</option>
+          {availableToAdd.map((q) => <option key={q.id} value={q.id}>{q.id} · {q.q.slice(0, 60)}</option>)}
         </select>
-        <select style={sel} value={addRole} onChange={(e) => setAddRole(e.target.value)} disabled={!addQ}>
-          <option value="">{addQ ? "Rol que la contesta…" : "Rol…"}</option>
-          {(addQ ? ROLES.filter((r) => ((QUESTIONS.find((q) => q.id === addQ) || {}).roles || []).includes(r.id)) : ROLES).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-        </select>
-        <input style={inp} value={addVal} onChange={(e) => setAddVal(e.target.value)} inputMode="decimal" title="Peso" />
-        <button onClick={addQuestionAdj} disabled={!addQ || !addRole} style={{ border: "none", background: (!addQ || !addRole) ? C.line : C.action, color: "#fff", borderRadius: 8, padding: "7px 12px", cursor: (!addQ || !addRole) ? "default" : "pointer", fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Plus size={13} /> Añadir ajuste</button>
+        <button onClick={addQuestionSplit} disabled={!addQ} style={{ border: "none", background: !addQ ? C.line : C.action, color: "#fff", borderRadius: 8, padding: "7px 12px", cursor: !addQ ? "default" : "pointer", fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Plus size={13} /> Personalizar</button>
         <button onClick={resetDefault} style={{ marginLeft: "auto", border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><RefreshCw size={13} /> Restaurar predeterminado</button>
       </div>
-      {addQ && (
-        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, border: `1px dashed ${C.action}`, background: hexA(C.action, 0.05) }}>
-          <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 4 }}>Reparto de influencia actual de <b style={{ fontFamily: mono }}>{addQ}</b> entre quienes la contestan:</div>
-          <InfluenceBar qid={addQ} weights={weights} />
-        </div>
-      )}
     </div>
   );
 }
