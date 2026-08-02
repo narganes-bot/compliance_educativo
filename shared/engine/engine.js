@@ -150,44 +150,68 @@ const BAND_LABEL = { low: "Bajo", med: "Medio", high: "Alto", crit: "Crítico" }
 // conocimiento refleja la implantación real. El consultor puede ajustar estos
 // pesos por modelo desde la aplicación.
 //
-// Dos niveles:
-//   · roles     → peso base por rol (multiplicador relativo; 1 = normal). Fija
-//                 el reparto de las preguntas SIN reparto propio.
-//   · questions → reparto de influencia de una pregunta, expresado en % que
-//                 suman 100 entre TODOS los roles que la contestan. Cuando una
-//                 pregunta tiene reparto propio, éste sustituye por completo al
-//                 peso base para esa pregunta. (Los números se normalizan igual
-//                 aunque no sumen exactamente 100.)
+// Un solo nivel: para CADA pregunta, un reparto de influencia expresado en %
+// que suman 100 entre los roles que la contestan. El predeterminado incorpora la
+// tendencia "front-line pesa más" pregunta a pregunta. El consultor puede
+// personalizar el reparto de cualquier pregunta desde la aplicación; lo que no
+// personaliza usa este reparto por defecto. (Los números se normalizan igual
+// aunque no sumen exactamente 100.)
 const DEFAULT_WEIGHTS = {
-  roles: {
-    titularidad: 1.0, direccion: 1.0, coordinador: 1.1, jefatura: 1.0,
-    profesorado: 1.2, nodocente: 1.1, dpd: 1.0, consultor: 1.0,
-  },
   questions: {
-    q4:  { direccion: 20, coordinador: 30, profesorado: 50 }, // protocolos difundidos e implantados
-    q6:  { coordinador: 45, jefatura: 55 },                   // protocolo de violencia/acoso operativo
-    q11: { direccion: 20, coordinador: 30, profesorado: 50 }, // canal accesible y difundido
-    q12: { profesorado: 55, nodocente: 45 },                  // el personal conoce el deber de comunicar
-    q15: { jefatura: 45, profesorado: 55 },                   // ratios y vigilancia en el día a día
-    q29: { coordinador: 55, jefatura: 45 },                   // protocolos autonómicos aplicados
-    q31: { direccion: 20, jefatura: 35, profesorado: 45 },    // simulacros realizados
-    q32: { profesorado: 50, nodocente: 50 },                  // funciones del personal en emergencia
+    q1: { titularidad: 50, direccion: 50 },
+    q2: { titularidad: 48, coordinador: 52 },
+    q3: { titularidad: 50, direccion: 50 },
+    q4: { profesorado: 50, coordinador: 30, direccion: 20 },   // protocolos difundidos e implantados
+    q5: { nodocente: 36, titularidad: 32, direccion: 32 },
+    q6: { jefatura: 55, coordinador: 45 },                     // protocolo de violencia/acoso operativo
+    q7: { coordinador: 48, profesorado: 52 },
+    q8: { direccion: 48, coordinador: 52 },
+    q9: { titularidad: 48, nodocente: 52 },
+    q10: { direccion: 48, nodocente: 52 },
+    q11: { profesorado: 50, coordinador: 30, direccion: 20 },  // canal accesible y difundido
+    q12: { profesorado: 55, nodocente: 45 },                   // conocer el deber de comunicar
+    q13: { coordinador: 35, nodocente: 34, direccion: 31 },
+    q14: { direccion: 48, coordinador: 52 },
+    q15: { profesorado: 55, jefatura: 45 },                    // ratios y vigilancia diaria
+    q16: { direccion: 50, jefatura: 50 },
+    q17: { nodocente: 100 },
+    q18: { nodocente: 100 },
+    q19: { dpd: 48, nodocente: 52 },
+    q20: { dpd: 50, direccion: 50 },
+    q21: { titularidad: 50, dpd: 50 },
+    q22: { direccion: 48, coordinador: 52 },
+    q23: { titularidad: 50, direccion: 50 },
+    q24: { titularidad: 50, direccion: 50 },
+    q25: { titularidad: 100 },
+    q26: { direccion: 100 },
+    q27: { direccion: 50, jefatura: 50 },
+    q28: { direccion: 48, coordinador: 52 },
+    q29: { coordinador: 55, jefatura: 45 },                    // protocolos autonómicos aplicados
+    q30: { titularidad: 50, direccion: 50 },
+    q31: { profesorado: 45, jefatura: 35, direccion: 20 },     // simulacros realizados
+    q32: { profesorado: 50, nodocente: 50 },                   // funciones en emergencia
   },
 };
+
+// Fusiona el reparto personalizado del modelo sobre los repartos por defecto:
+// una pregunta usa el reparto del consultor si lo tiene; si no, el predeterminado.
+function resolveWeights(weights) {
+  const uq = (weights && typeof weights === "object" && weights.questions && typeof weights.questions === "object") ? weights.questions : {};
+  return { questions: Object.assign({}, DEFAULT_WEIGHTS.questions, uq) };
+}
 
 function effectiveWeight(qid, role, W) {
   const qov = W && W.questions && W.questions[qid];
   if (qov && qov[role] != null && isFinite(qov[role])) return Math.max(0, qov[role]);
-  if (W && W.roles && W.roles[role] != null && isFinite(W.roles[role])) return Math.max(0, W.roles[role]);
-  return 1;
+  return 1; // sin reparto definido para ese rol → peso neutro
 }
 
 // Reparto de influencia de una pregunta: cómo se distribuye el 100% entre los
-// roles que la contestan (q.roles), según sus pesos efectivos. La cuota de cada
+// roles que la contestan (q.roles), según el reparto efectivo. La cuota de cada
 // rol es peso ÷ Σpesos, de modo que las cuotas SIEMPRE suman 100%. Devuelve
 // [{ role, label, weight, share }] ordenado de mayor a menor influencia.
 function questionInfluence(qid, weights) {
-  const W = (weights && typeof weights === "object" && (weights.roles || weights.questions)) ? weights : DEFAULT_WEIGHTS;
+  const W = resolveWeights(weights);
   const q = QUESTIONS.find((x) => x.id === qid);
   if (!q) return [];
   const rows = q.roles.map((role) => ({ role, label: roleLabel(role), weight: effectiveWeight(qid, role, W) }));
@@ -216,8 +240,8 @@ function rd393FromCenter(center) {
 
 function computeRisks(interviews, overrides = {}, center = null, weights = null) {
   overrides = overrides && typeof overrides === "object" ? overrides : {};
-  // Config de pesos: la aportada por el modelo si existe; si no, el predeterminado.
-  const W = (weights && typeof weights === "object" && (weights.roles || weights.questions)) ? weights : DEFAULT_WEIGHTS;
+  // Config de pesos: reparto por pregunta del modelo fusionado sobre el predeterminado.
+  const W = resolveWeights(weights);
   // Si el RD 393/2007 es de aplicación al centro, el impacto del riesgo R24
   // sube a Muy alto (5): la autoprotección pasa de buena práctica exigible a
   // obligación legal directa y sancionable (arts. 2 y 9 RD 393/2007).
@@ -313,5 +337,5 @@ module.exports = {
   RISKS, QUESTIONS, QUESTION_ACTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
   rd393Assessment, rd393FromCenter, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
-  DEFAULT_WEIGHTS, effectiveWeight, questionInfluence,
+  DEFAULT_WEIGHTS, resolveWeights, effectiveWeight, questionInfluence,
 };
