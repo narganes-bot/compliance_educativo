@@ -1498,21 +1498,11 @@ function Dashboard({ code, center: centerProp, onBack }) {
 // Permite ajustar, por modelo, el peso base de cada rol y añadir excepciones
 // por pregunta. Parte del predeterminado del motor; se guarda con el modelo.
 function WeightsEditor({ weights, onChange }) {
-  const base = weights || DEFAULT_WEIGHTS || { roles: {}, questions: {} };
-  const roleW = (id) => (base.roles && base.roles[id] != null) ? base.roles[id] : 1;
+  // Solo se guardan los repartos PERSONALIZADOS; el resto de preguntas usa el
+  // reparto por defecto del motor (fusión en resolveWeights).
+  const customQ = (weights && weights.questions && typeof weights.questions === "object") ? weights.questions : {};
   const [addQ, setAddQ] = useState("");
-  const [addRole, setAddRole] = useState("");
-  const [addVal, setAddVal] = useState("1.5");
-  // Construye un objeto de pesos completo a partir del actual (para poder editar).
-  const materialize = () => ({
-    roles: Object.fromEntries(ROLES.map((r) => [r.id, roleW(r.id)])),
-    questions: base.questions ? JSON.parse(JSON.stringify(base.questions)) : {},
-  });
-  const setRoleWeight = (id, v) => {
-    const w = materialize(); const n = parseFloat(String(v).replace(",", "."));
-    w.roles[id] = Number.isFinite(n) && n >= 0 && n <= 5 ? n : 1;
-    onChange(w);
-  };
+  const materialize = () => ({ questions: JSON.parse(JSON.stringify(customQ)) });
   const qRoles = (qid) => ((QUESTIONS.find((q) => q.id === qid) || {}).roles) || [];
   // Empieza a personalizar una pregunta: prefija el reparto actual en % (suma 100).
   const addQuestionSplit = () => {
@@ -1537,27 +1527,17 @@ function WeightsEditor({ weights, onChange }) {
   const resetDefault = () => onChange(null);
   const qLabel = (qid) => (QUESTIONS.find((q) => q.id === qid) || {}).q || qid;
   const roleLbl2 = (id) => (ROLES.find((r) => r.id === id) || {}).label || id;
-  const qEntries = base.questions ? Object.entries(base.questions) : [];
-  const availableToAdd = QUESTIONS.filter((q) => !(base.questions && base.questions[q.id]));
+  const qEntries = Object.entries(customQ);
+  const availableToAdd = QUESTIONS.filter((q) => !customQ[q.id]);
   const inp = { width: 64, padding: "5px 7px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 13, textAlign: "center", fontFamily: mono };
   const sel = { padding: "6px 8px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 12.5, background: "#fff" };
   return (
     <div style={{ marginTop: 14, borderTop: `1px solid ${C.line}`, paddingTop: 14 }}>
       <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12, lineHeight: 1.5 }}>
-        La probabilidad de cada riesgo es una media ponderada de las respuestas. Hay dos niveles de ajuste: el <b>peso base por rol</b> (multiplicador general) y el <b>reparto por pregunta</b> (en % que suman 100). El criterio no es jerárquico: se prima a quien vive el control de primera mano. Nada de esto afecta al impacto.
-      </div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 4, fontFamily: mono }}>PESO BASE POR ROL</div>
-      <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Multiplicador general (1,0 = normal). Fija el reparto de las preguntas que no personalices abajo.</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8, marginBottom: 16 }}>
-        {ROLES.map((r) => (
-          <label key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff" }}>
-            <span style={{ fontSize: 12.5, color: C.ink }}>{r.label}</span>
-            <input style={inp} value={String(roleW(r.id)).replace(".", ",")} onChange={(e) => setRoleWeight(r.id, e.target.value)} inputMode="decimal" />
-          </label>
-        ))}
+        La probabilidad de cada riesgo es una media ponderada de las respuestas. Para cada pregunta, el <b>reparto de influencia</b> indica qué porcentaje aporta cada rol que la contesta (siempre suma 100%). El criterio no es jerárquico: se prima a quien vive el control de primera mano. No afecta al impacto.
       </div>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: C.navy, marginBottom: 4, fontFamily: mono }}>REPARTO DE INFLUENCIA POR PREGUNTA (%)</div>
-      <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Para las preguntas que personalices, reparte el 100% entre los roles que la contestan. Escribe los porcentajes; si no suman exactamente 100, se ajustan solos de forma proporcional.</div>
+      <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Las preguntas que no personalices usan el reparto por defecto. Al personalizar una, reparte el 100% entre los roles que la contestan; si no suman exactamente 100, se ajustan solos de forma proporcional.</div>
       {qEntries.length ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
           {qEntries.map(([qid, rmap]) => {
