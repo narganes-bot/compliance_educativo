@@ -1011,7 +1011,7 @@ function QuestionHead({ q }) {
           <div style={{ marginBottom: 4 }}><b>Propósito.</b> {m.purpose}</div>
           <div style={{ marginBottom: 4 }}><b>Responsable del cumplimiento:</b> {m.responsible || "—"}</div>
           <div style={{ marginBottom: 4 }}><b>Riesgo asociado:</b> {m.risks.map((r) => `${r.code} — ${r.title}`).join(" · ")}</div>
-          <div><b>Se regula en:</b> {m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)"}</div>
+          <div><b>Se regula en:</b> {m.norms || (m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)")}</div>
         </div>
       )}
     </div>
@@ -1034,7 +1034,7 @@ function QHelpInline({ qid }) {
           <div style={{ marginBottom: 4 }}><b>Propósito.</b> {m.purpose}</div>
           <div style={{ marginBottom: 4 }}><b>Responsable del cumplimiento:</b> {m.responsible || "—"}</div>
           <div style={{ marginBottom: 4 }}><b>Riesgo asociado:</b> {m.risks.map((r) => `${r.code} — ${r.title}`).join(" · ")}</div>
-          <div><b>Se regula en:</b> {m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)"}</div>
+          <div><b>Se regula en:</b> {m.norms || (m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)")}</div>
         </div>
       )}
     </span>
