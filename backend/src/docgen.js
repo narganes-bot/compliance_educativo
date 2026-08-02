@@ -930,6 +930,25 @@ const anexoB = [
   note("La influencia refleja el diseño de la ponderación, no cuántas personas de cada rol respondieron finalmente en el centro. El impacto (I) queda fuera de este reparto: solo afecta a la probabilidad (P)."),
 ];
 
+// Anexo C — cuestionario: propósito, riesgo asociado y norma de cada pregunta.
+const anexoC = [
+  h1("Anexo C. Cuestionario del diagnóstico"),
+  p("Las entrevistas se estructuran en un cuestionario de preguntas numeradas (q1, q2, …). Para cada una se indica qué comprueba (propósito), el riesgo del modelo al que contribuye y la norma en la que se ampara. Es la misma ayuda que el consultor puede consultar en la aplicación al lado de cada pregunta.", { after: 120 }),
+  table(
+    ["Cód.", "Pregunta", "Propósito (qué comprueba)", "Riesgo asociado", "Se regula en"],
+    [780, 3700, 4600, 3200, 2290],
+    E.QUESTIONS.map((q) => {
+      const m = (typeof E.questionMeta === "function") ? E.questionMeta(q.id) : null;
+      const purpose = m ? m.purpose : "";
+      const risks = m ? m.risks.map((r) => `${r.code} — ${r.title}`) : [];
+      const laws = m && m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión";
+      return [q.id, q.q, purpose, risks.length ? risks.map((x) => ({ bullet: x })) : "—", laws];
+    }),
+    { zebra: true, size: 14 }
+  ),
+  note("El propósito y las referencias normativas son orientativos; los artículos concretos y los protocolos autonómicos deben verificarse en su redacción vigente (véanse las cautelas del apartado 21)."),
+];
+
 /* ---------- numbering / styles / secciones ---------- */
 
 const numbering = {
@@ -1003,6 +1022,8 @@ const doc = new Document({
       ...anexoA,
       ...anexoB,
     ]),
+    // Anexo C — cuestionario (apaisado, 5 columnas)
+    secL([...anexoC]),
   ],
 });
 
