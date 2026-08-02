@@ -1009,6 +1009,7 @@ function QuestionHead({ q }) {
       {open && m && (
         <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 8, background: hexA(C.action, 0.06), border: `1px solid ${hexA(C.action, 0.25)}`, fontSize: 12, color: C.ink, lineHeight: 1.5 }}>
           <div style={{ marginBottom: 4 }}><b>Propósito.</b> {m.purpose}</div>
+          <div style={{ marginBottom: 4 }}><b>Responsable del cumplimiento:</b> {m.responsible || "—"}</div>
           <div style={{ marginBottom: 4 }}><b>Riesgo asociado:</b> {m.risks.map((r) => `${r.code} — ${r.title}`).join(" · ")}</div>
           <div><b>Se regula en:</b> {m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)"}</div>
         </div>
@@ -1031,6 +1032,7 @@ function QHelpInline({ qid }) {
       {open && (
         <div style={{ position: "absolute", top: "130%", right: 0, zIndex: 20, width: 340, maxWidth: "80vw", padding: "10px 12px", borderRadius: 8, background: "#fff", border: `1px solid ${hexA(C.action, 0.4)}`, boxShadow: "0 6px 20px rgba(0,0,0,0.12)", fontSize: 12, color: C.ink, lineHeight: 1.5, textAlign: "left", fontWeight: 400, whiteSpace: "normal" }}>
           <div style={{ marginBottom: 4 }}><b>Propósito.</b> {m.purpose}</div>
+          <div style={{ marginBottom: 4 }}><b>Responsable del cumplimiento:</b> {m.responsible || "—"}</div>
           <div style={{ marginBottom: 4 }}><b>Riesgo asociado:</b> {m.risks.map((r) => `${r.code} — ${r.title}`).join(" · ")}</div>
           <div><b>Se regula en:</b> {m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)"}</div>
         </div>
