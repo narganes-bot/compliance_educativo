@@ -18,6 +18,7 @@ const {
   CONSULTANT_ROLE,
   rd393Assessment,
   DEFAULT_WEIGHTS, questionInfluence,
+  questionMeta,
 } = ENGINE;
 
 /* ================================================================== *
@@ -990,6 +991,54 @@ function Join({ onJoined, onBack }) {
   );
 }
 
+/* --------- Encabezado de pregunta: número (q1…), texto y ayuda --------- */
+// La ayuda explica qué comprueba la pregunta, el riesgo asociado y la norma.
+function QuestionHead({ q }) {
+  const [open, setOpen] = useState(false);
+  const m = questionMeta ? questionMeta(q.id) : null;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+        <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: C.action, marginTop: 2, whiteSpace: "nowrap" }}>{q.id}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 500, flex: 1 }}>{q.q}</span>
+        <button onClick={() => setOpen((o) => !o)} title="Ayuda: qué comprueba, riesgo asociado y norma"
+          style={{ border: "none", background: "transparent", cursor: "pointer", color: open ? C.action : C.slate, display: "inline-flex", flexShrink: 0, marginTop: 1, padding: 0 }}>
+          <Info size={15} />
+        </button>
+      </div>
+      {open && m && (
+        <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 8, background: hexA(C.action, 0.06), border: `1px solid ${hexA(C.action, 0.25)}`, fontSize: 12, color: C.ink, lineHeight: 1.5 }}>
+          <div style={{ marginBottom: 4 }}><b>Propósito.</b> {m.purpose}</div>
+          <div style={{ marginBottom: 4 }}><b>Riesgo asociado:</b> {m.risks.map((r) => `${r.code} — ${r.title}`).join(" · ")}</div>
+          <div><b>Se regula en:</b> {m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)"}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Botón de ayuda con popover (para filas compactas, p. ej. editor de pesos). */
+function QHelpInline({ qid }) {
+  const [open, setOpen] = useState(false);
+  const m = questionMeta ? questionMeta(qid) : null;
+  if (!m) return null;
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}>
+      <button onClick={() => setOpen((o) => !o)} title="Ayuda: qué comprueba, riesgo asociado y norma"
+        style={{ border: "none", background: "transparent", cursor: "pointer", color: open ? C.action : C.slate, display: "inline-flex", padding: 0, marginLeft: 4 }}>
+        <Info size={14} />
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "130%", right: 0, zIndex: 20, width: 340, maxWidth: "80vw", padding: "10px 12px", borderRadius: 8, background: "#fff", border: `1px solid ${hexA(C.action, 0.4)}`, boxShadow: "0 6px 20px rgba(0,0,0,0.12)", fontSize: 12, color: C.ink, lineHeight: 1.5, textAlign: "left", fontWeight: 400, whiteSpace: "normal" }}>
+          <div style={{ marginBottom: 4 }}><b>Propósito.</b> {m.purpose}</div>
+          <div style={{ marginBottom: 4 }}><b>Riesgo asociado:</b> {m.risks.map((r) => `${r.code} — ${r.title}`).join(" · ")}</div>
+          <div><b>Se regula en:</b> {m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión (sin norma específica)"}</div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 /* ------------------------- InterviewForm (compartido) ------------------------- */
 function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon = Send, initial = null }) {
   const isConsultantEdit = !!(initial && initial.role === CONSULTANT_ROLE);
@@ -1026,10 +1075,7 @@ function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {qs.map((q) => { const showComment = answers[q.id] === "parcial" || answers[q.id] === "ns"; return (
           <div key={q.id} style={{ padding: "12px 14px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.bg }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
-              <span style={{ fontFamily: mono, fontSize: 10.5, color: C.slate, marginTop: 2, whiteSpace: "nowrap" }}>{q.risks.join("·")}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 500 }}>{q.q}</span>
-            </div>
+            <QuestionHead q={q} />
             {q.laws.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 9 }}>{q.laws.map((id) => <LawChip small key={id} id={id} />)}</div>}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1077,10 +1123,7 @@ function ConsultantFill({ interviews, onSubmit }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {gaps.map((q) => { const showComment = answers[q.id] === "parcial" || answers[q.id] === "ns"; return (
           <div key={q.id} style={{ padding: "12px 14px", borderRadius: 9, border: `1px solid ${C.line}`, background: C.bg }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }}>
-              <span style={{ fontFamily: mono, fontSize: 10.5, color: C.slate, marginTop: 2, whiteSpace: "nowrap" }}>{q.risks.join("·")}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 500 }}>{q.q}</span>
-            </div>
+            <QuestionHead q={q} />
             <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Correspondía a: {rolesTxt(q)}</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1561,6 +1604,7 @@ function WeightsEditor({ weights, onChange }) {
                 <div style={{ fontSize: 12, color: C.ink }}>
                   <b style={{ fontFamily: mono }}>{qid}</b> · {qLabel(qid)}
                   {isCustom && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: C.action, background: hexA(C.action, 0.1), borderRadius: 20, padding: "1px 7px" }}>PERSONALIZADA</span>}
+                  <QHelpInline qid={qid} />
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                   {isExp
