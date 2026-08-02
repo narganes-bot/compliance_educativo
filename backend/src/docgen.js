@@ -935,15 +935,15 @@ const anexoC = [
   h1("Anexo C. Cuestionario del diagnóstico"),
   p("Las entrevistas se estructuran en un cuestionario de preguntas numeradas (q1, q2, …). Para cada una se indica qué comprueba (propósito), el riesgo del modelo al que contribuye y la norma en la que se ampara. Es la misma ayuda que el consultor puede consultar en la aplicación al lado de cada pregunta.", { after: 120 }),
   table(
-    ["Cód.", "Pregunta", "Propósito (qué comprueba)", "Responsable del cumplimiento", "Riesgo asociado", "Se regula en"],
-    [640, 3150, 3700, 2280, 2600, 2200],
+    ["Cód.", "Pregunta", "Propósito (qué comprueba)", "Responsable del cumplimiento", "Riesgo asociado", "Se regula en (norma y artículo)"],
+    [620, 2950, 3050, 2180, 2470, 3300],
     E.QUESTIONS.map((q) => {
       const m = (typeof E.questionMeta === "function") ? E.questionMeta(q.id) : null;
       const purpose = m ? m.purpose : "";
       const responsible = m && m.responsible ? m.responsible : "—";
       const risks = m ? m.risks.map((r) => `${r.code} — ${r.title}`) : [];
-      const laws = m && m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión";
-      return [q.id, q.q, purpose, responsible, risks.length ? risks.map((x) => ({ bullet: x })) : "—", laws];
+      const norms = m && m.norms ? m.norms : (m && m.laws.length ? m.laws.map((l) => l.label).join(", ") : "Buena práctica de gestión");
+      return [q.id, q.q, purpose, responsible, risks.length ? risks.map((x) => ({ bullet: x })) : "—", norms];
     }),
     { zebra: true, size: 14 }
   ),
