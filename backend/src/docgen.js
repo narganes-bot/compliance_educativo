@@ -353,6 +353,9 @@ function buildDocxBuffer(center, interviews, overrides, weights) {
   const rolesWithWeight = (E.ROLES || []).map((r) => ({ id: r.id, label: r.label, w: roleW(r.id) }));
   const anyRoleAdj = rolesWithWeight.some((r) => r.w !== 1);
   const qWeightEntries = W.questions ? Object.keys(W.questions) : [];
+  // Reparto de influencia (%) de una pregunta entre los roles que la contestan.
+  const inflOf = (qid) => (typeof E.questionInfluence === "function") ? E.questionInfluence(qid, weights) : [];
+  const inflStr = (qid) => inflOf(qid).map((r) => `${E.roleShort ? E.roleShort(r.role) : r.label}: ${Math.round(r.share * 100)}%`).join(" · ") || "—";
   const rated = risks.filter((r) => r.status === "rated");
   const ratedSorted = [...rated].sort((a, b) => b.level - a.level);
   const critHigh = ratedSorted.filter((r) => ["crit", "high"].includes(r.band));
@@ -578,15 +581,15 @@ const sec1 = [
     rolesWithWeight.map((r) => [r.label, r.w === 1 ? "1,0 (normal)" : String(r.w).replace(".", ",") + (r.w > 1 ? "  ↑" : "  ↓")]),
     { zebra: true }),
   ...(qWeightEntries.length ? [
-    p("Ajustes específicos por pregunta (refuerzan a quien conoce de primera mano la implantación del control):", { size: 17, after: 40, before: 60, italics: true, color: "595959" }),
-    table(["Pregunta", "Ajuste de peso por rol"], [5800, 3838],
+    p("Ajustes específicos por pregunta (refuerzan a quien conoce de primera mano la implantación del control). La última columna traduce esos pesos a reparto de influencia: qué porcentaje del resultado aporta cada rol que contesta la pregunta; siempre suma 100%.", { size: 17, after: 40, before: 60, italics: true, color: "595959" }),
+    table(["Pregunta", "Ajuste de peso por rol", "Reparto de influencia (suma 100%)"], [4300, 2669, 2669],
       qWeightEntries.map((qid) => {
         const q = (E.QUESTIONS.find((x) => x.id === qid) || {}).q || qid;
         const adj = Object.entries(W.questions[qid]).map(([role, w]) => `${roleLbl(role)}: ${String(w).replace(".", ",")}`).join("; ");
-        return [q, adj];
+        return [q, adj, inflStr(qid)];
       }), { zebra: true }),
   ] : []),
-  note("La ponderación afecta a la probabilidad (P), no al impacto (I). Un peso 0 excluiría por completo las respuestas de ese rol para esa pregunta. Los pesos deben interpretarse como criterio metodológico orientativo, no como un juicio sobre la fiabilidad de las personas."),
+  note("La ponderación afecta a la probabilidad (P), no al impacto (I). Un peso 0 excluiría por completo las respuestas de ese rol para esa pregunta. La cuota de influencia de cada rol es su peso dividido entre la suma de los pesos de quienes contestan la pregunta, por lo que las cuotas siempre suman el 100% (el reparto completo de las 32 preguntas figura en el Anexo B). Los pesos son criterio metodológico orientativo, no un juicio sobre la fiabilidad de las personas."),
   h2("1.5. Supuestos declarados"),
   bullet("Se asume un centro educativo que atiende a alumnado menor de edad en enseñanzas no universitarias."),
   bullet("La numeración de algunos artículos del capítulo educativo de la LOPIVI y los protocolos de acoso/convivencia dependen de desarrollo normativo y de cada CCAA: se citan de forma prudente y deben verificarse."),
@@ -924,6 +927,16 @@ const anexoA = [
   note("Este texto es un modelo orientativo. Antes de su uso debe completarse con los datos del centro, elegirse y justificarse la base jurídica adecuada y validarse por el delegado de protección de datos o asesoramiento jurídico. Si el diagnóstico incorpora comentarios de texto libre, se recomienda recordar a las personas participantes, en el propio formulario, que no incluyan datos personales."),
 ];
 
+const anexoB = [
+  new Paragraph({ children: [new PageBreak()] }),
+  h1("Anexo B. Reparto de influencia por pregunta"),
+  p("Para cada control (pregunta), esta tabla muestra qué porcentaje del resultado aporta cada rol que lo contesta, según los pesos aplicados en este diagnóstico. La cuota de cada rol es su peso dividido entre la suma de los pesos de quienes contestan esa pregunta; por eso, en todas las filas, las cuotas suman el 100%. Cuando una pregunta la contesta un solo rol, ese rol concentra el 100%.", { after: 100 }),
+  table(["Cód.", "Pregunta", "Reparto de influencia entre quienes la contestan (suma 100%)"],
+    [700, 5300, 3638],
+    E.QUESTIONS.map((q) => [q.id, q.q, inflStr(q.id)]), { zebra: true }),
+  note("La influencia refleja el diseño de la ponderación, no cuántas personas de cada rol respondieron finalmente en el centro. El impacto (I) queda fuera de este reparto: solo afecta a la probabilidad (P)."),
+];
+
 /* ---------- numbering / styles / secciones ---------- */
 
 const numbering = {
@@ -995,6 +1008,7 @@ const doc = new Document({
       ...parte("IV", "IMPLANTACIÓN Y SEGUIMIENTO", "Del diagnóstico a la acción: plan a 90 días, fases de implantación, indicadores, autoevaluación y cautelas."),
       ...sec17, br(), ...sec18, br(), ...sec19, br(), ...sec20, br(), ...sec21, br(), ...sec22,
       ...anexoA,
+      ...anexoB,
     ]),
   ],
 });
