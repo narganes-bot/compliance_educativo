@@ -175,8 +175,48 @@ const QUESTION_HELP = {
   q32: "Verifica que el personal conoce sus funciones en caso de emergencia (alarma, evacuación, ayuda a personas con movilidad reducida, primeros auxilios).",
 };
 
+// Responsable del cumplimiento de cada obligación (quién RINDE CUENTAS de que el
+// control esté implantado). NO es lo mismo que quién contesta la pregunta en la
+// entrevista. Formato: responsable principal (con apoyo opcional entre paréntesis),
+// coherente con el mapa de actores y con los responsables de los riesgos.
+const QUESTION_RESPONSIBLE = {
+  q1: "Titularidad (con Dirección)",
+  q2: "Titularidad (con Dirección)",
+  q3: "Titularidad (con Coordinador/a de Bienestar)",
+  q4: "Coordinador/a de Bienestar (con Dirección)",
+  q5: "Titularidad (con RR. HH.)",
+  q6: "Coordinador/a de Bienestar (con Jefatura de estudios)",
+  q7: "Coordinador/a de Bienestar (con responsable TIC)",
+  q8: "Dirección (con Coordinador/a de Bienestar)",
+  q9: "RR. HH. (con Titularidad)",
+  q10: "Administración (con RR. HH.)",
+  q11: "Dirección (con Coordinador/a de Bienestar)",
+  q12: "Coordinador/a de Bienestar (con Dirección)",
+  q13: "Secretaría (con Dirección)",
+  q14: "Coordinador/a de Bienestar (con Dirección)",
+  q15: "Jefatura de estudios",
+  q16: "Dirección (con responsable de actividades)",
+  q17: "Secretaría (con la empresa de transporte)",
+  q18: "Secretaría (con el servicio de comedor)",
+  q19: "DPD (con Dirección)",
+  q20: "DPD (con Dirección)",
+  q21: "Titularidad (con DPD)",
+  q22: "Dirección (con Coordinador/a de Bienestar)",
+  q23: "Titularidad (con auditoría interna)",
+  q24: "Titularidad (con Dirección)",
+  q25: "Titularidad",
+  q26: "Dirección",
+  q27: "Dirección (con Jefatura de estudios)",
+  q28: "Coordinador/a de Bienestar (con Dirección)",
+  q29: "Coordinador/a de Bienestar (con Jefatura de estudios)",
+  q30: "Titularidad (con Dirección)",
+  q31: "Dirección (con Jefatura de estudios)",
+  q32: "Dirección (con Jefatura de estudios)",
+};
+
 // Devuelve la ficha completa de una pregunta: número, texto, propósito, riesgos
-// asociados (código y título) y normas donde se regula (id y etiqueta).
+// asociados (código y título), normas donde se regula (id y etiqueta) y el
+// responsable del cumplimiento de la obligación.
 function questionMeta(qid) {
   const q = QUESTIONS.find((x) => x.id === qid);
   if (!q) return null;
@@ -184,6 +224,7 @@ function questionMeta(qid) {
     id: q.id,
     q: q.q,
     purpose: QUESTION_HELP[qid] || "",
+    responsible: QUESTION_RESPONSIBLE[qid] || "",
     risks: (q.risks || []).map((code) => { const r = RISKS.find((x) => x.code === code); return { code, title: r ? r.title : code }; }),
     laws: (q.laws || []).map((id) => ({ id, label: lawLabel(id) })),
   };
@@ -386,7 +427,7 @@ function rd393Assessment(center) {
 
 module.exports = {
   LAW_CATALOG, LAW_LEVELS, lawShort, lawLabel, ROLES, roleLabel, roleShort,
-  RISKS, QUESTIONS, QUESTION_ACTIONS, QUESTION_HELP, questionMeta, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
+  RISKS, QUESTIONS, QUESTION_ACTIONS, QUESTION_HELP, QUESTION_RESPONSIBLE, questionMeta, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
   rd393Assessment, rd393FromCenter, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
   DEFAULT_WEIGHTS, resolveWeights, effectiveWeight, questionInfluence,
