@@ -173,6 +173,20 @@ function effectiveWeight(qid, role, W) {
   return 1;
 }
 
+// Reparto de influencia de una pregunta: cómo se distribuye el 100% entre los
+// roles que la contestan (q.roles), según sus pesos efectivos. La cuota de cada
+// rol es peso ÷ Σpesos, de modo que las cuotas SIEMPRE suman 100%. Devuelve
+// [{ role, label, weight, share }] ordenado de mayor a menor influencia.
+function questionInfluence(qid, weights) {
+  const W = (weights && typeof weights === "object" && (weights.roles || weights.questions)) ? weights : DEFAULT_WEIGHTS;
+  const q = QUESTIONS.find((x) => x.id === qid);
+  if (!q) return [];
+  const rows = q.roles.map((role) => ({ role, label: roleLabel(role), weight: effectiveWeight(qid, role, W) }));
+  const tot = rows.reduce((s, r) => s + r.weight, 0) || 1;
+  rows.forEach((r) => { r.share = r.weight / tot; });
+  return rows.sort((a, b) => b.share - a.share);
+}
+
 const validPI = (v) => (Number.isInteger(v) && v >= 1 && v <= 5 ? v : null);
 
 // Acepta el centro en cualquiera de sus formatos (app, backend o motor) y
@@ -290,5 +304,5 @@ module.exports = {
   RISKS, QUESTIONS, QUESTION_ACTIONS, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
   rd393Assessment, rd393FromCenter, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
-  DEFAULT_WEIGHTS, effectiveWeight,
+  DEFAULT_WEIGHTS, effectiveWeight, questionInfluence,
 };
