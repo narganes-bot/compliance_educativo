@@ -346,13 +346,9 @@ function buildDocxBuffer(center, interviews, overrides, weights) {
   const risks = E.computeRisks(interviews, overrides, center, weights);
   const coverage = E.computeCoverage(interviews);
   const rd393 = (typeof E.rd393FromCenter === "function") ? E.rd393FromCenter(center) : null;
-  // Config de pesos efectivamente aplicada (la del modelo o el predeterminado).
-  const W = (weights && (weights.roles || weights.questions)) ? weights : (E.DEFAULT_WEIGHTS || { roles: {}, questions: {} });
-  const roleW = (r) => (W.roles && W.roles[r] != null) ? W.roles[r] : 1;
-  const roleLbl = (r) => E.roleLabel ? E.roleLabel(r) : r;
-  const rolesWithWeight = (E.ROLES || []).map((r) => ({ id: r.id, label: r.label, w: roleW(r.id) }));
-  const anyRoleAdj = rolesWithWeight.some((r) => r.w !== 1);
-  const qWeightEntries = W.questions ? Object.keys(W.questions) : [];
+  // Preguntas con reparto PERSONALIZADO en este modelo (las demás usan el
+  // reparto por defecto, que se lista completo en el Anexo B).
+  const qWeightEntries = (weights && weights.questions) ? Object.keys(weights.questions) : [];
   // Reparto de influencia (%) de una pregunta entre los roles que la contestan.
   const inflOf = (qid) => (typeof E.questionInfluence === "function") ? E.questionInfluence(qid, weights) : [];
   const inflStr = (qid) => inflOf(qid).map((r) => `${E.roleShort ? E.roleShort(r.role) : r.label}: ${Math.round(r.share * 100)}%`).join(" · ") || "—";
@@ -574,21 +570,19 @@ const sec1 = [
   h2("1.3. Cómo se determina el impacto (I)"),
   p("El impacto es una valoración experta previa y estable de cada riesgo, en una escala de 1 a 5, según la gravedad de sus consecuencias jurídicas (responsabilidad civil, penal, administrativa o patrimonial), del daño potencial para el menor y de la exposición reputacional del centro. No depende de las respuestas de las entrevistas —por eso un riesgo puede tener un impacto alto aunque el control esté bien implantado—: lo que cambia con las entrevistas es la probabilidad, no el impacto. La única excepción es el riesgo de autoprotección (R24), cuyo impacto sube a 5 cuando el centro entra en el ámbito del RD 393/2007, por tratarse entonces de una obligación legal directa y sancionable. El nivel de riesgo resulta de multiplicar probabilidad por impacto (P × I) y determina la banda (bajo, medio, alto o crítico).", { after: 100 }),
   h2("1.4. Ponderación de las respuestas y respuestas divergentes"),
-  p("No todas las respuestas pesan necesariamente igual. La probabilidad se calcula como una media ponderada en la que cada respuesta tiene un peso según el rol de quien la da y, en algunas preguntas, según un ajuste específico. El criterio no es jerárquico —no se da más valor a quien ocupa un puesto superior—, sino de proximidad al control: quien ejecuta un control en el día a día suele conocer mejor si está realmente implantado. El caso típico es la difusión de un protocolo: que esté «difundido» lo acredita mejor el profesorado que debe aplicarlo que la dirección que lo aprobó; por eso, en esas preguntas, el «No» o el «No sé» del profesorado pesa más que el «Sí» de la dirección. Así, si un control existe sobre el papel pero no ha llegado a quien debe aplicarlo, la probabilidad refleja ese riesgo real en lugar de diluirlo.", { after: 80 }),
-  p("Los pesos son un punto de partida razonado y pueden ajustarse por el consultor para cada centro. Cuando dos roles responden de forma divergente a un mismo control, la contradicción no se descarta ni se promedia sin más: además de entrar en la media ponderada, se marca como discrepancia y se detalla en el apartado 9, para que el centro la verifique en campo.", { after: 80 }),
-  p("Pesos aplicados en este diagnóstico:", { bold: true, size: 19, after: 40, color: "2E4D7B" }),
-  table(["Rol", "Peso base"], [6000, 3638],
-    rolesWithWeight.map((r) => [r.label, r.w === 1 ? "1,0 (normal)" : String(r.w).replace(".", ",") + (r.w > 1 ? "  ↑" : "  ↓")]),
-    { zebra: true }),
+  p("No todas las respuestas pesan necesariamente igual. Para cada pregunta se define un reparto de influencia: qué porcentaje del resultado aporta cada rol que la contesta, de modo que ese reparto siempre suma 100%. El criterio no es jerárquico —no se da más valor a quien ocupa un puesto superior—, sino de proximidad al control: quien ejecuta un control en el día a día suele conocer mejor si está realmente implantado. El caso típico es la difusión de un protocolo: que esté «difundido» lo acredita mejor el profesorado que debe aplicarlo que la dirección que lo aprobó; por eso, en esas preguntas, el «No» o el «No sé» del profesorado pesa más que el «Sí» de la dirección. Así, si un control existe sobre el papel pero no ha llegado a quien debe aplicarlo, la probabilidad refleja ese riesgo real en lugar de diluirlo.", { after: 80 }),
+  p("El reparto por defecto es un punto de partida razonado y puede personalizarse por el consultor para cada centro. Cuando dos roles responden de forma divergente a un mismo control, la contradicción no se descarta ni se promedia sin más: además de entrar en la media ponderada, se marca como discrepancia y se detalla en el apartado 9, para que el centro la verifique en campo.", { after: 80 }),
   ...(qWeightEntries.length ? [
-    p("Preguntas con reparto propio (se refuerza a quien conoce de primera mano la implantación del control). El reparto indica qué porcentaje del resultado aporta cada rol que contesta la pregunta y siempre suma 100%:", { size: 17, after: 40, before: 60, italics: true, color: "595959" }),
+    p("Preguntas con reparto personalizado en este modelo (el resto usa el reparto por defecto). Cada reparto indica qué porcentaje aporta cada rol que contesta la pregunta y suma 100%:", { size: 17, after: 40, before: 20, italics: true, color: "595959" }),
     table(["Pregunta", "Reparto de influencia (suma 100%)"], [5638, 4000],
       qWeightEntries.map((qid) => {
         const q = (E.QUESTIONS.find((x) => x.id === qid) || {}).q || qid;
         return [q, inflStr(qid)];
       }), { zebra: true }),
-  ] : []),
-  note("La ponderación afecta a la probabilidad (P), no al impacto (I). Un peso 0 excluiría por completo las respuestas de ese rol para esa pregunta. La cuota de influencia de cada rol es su peso dividido entre la suma de los pesos de quienes contestan la pregunta, por lo que las cuotas siempre suman el 100% (el reparto completo de las 32 preguntas figura en el Anexo B). Los pesos son criterio metodológico orientativo, no un juicio sobre la fiabilidad de las personas."),
+  ] : [
+    p("Este diagnóstico usa el reparto de influencia por defecto en todas las preguntas. El reparto completo de las 32 preguntas figura en el Anexo B.", { size: 17, after: 20, before: 20, italics: true, color: "595959" }),
+  ]),
+  note("La ponderación afecta a la probabilidad (P), no al impacto (I). La cuota de influencia de cada rol es su peso dividido entre la suma de los pesos de quienes contestan la pregunta, por lo que las cuotas siempre suman el 100% (el reparto completo de las 32 preguntas figura en el Anexo B). Los repartos son criterio metodológico orientativo, no un juicio sobre la fiabilidad de las personas."),
   h2("1.5. Supuestos declarados"),
   bullet("Se asume un centro educativo que atiende a alumnado menor de edad en enseñanzas no universitarias."),
   bullet("La numeración de algunos artículos del capítulo educativo de la LOPIVI y los protocolos de acoso/convivencia dependen de desarrollo normativo y de cada CCAA: se citan de forma prudente y deben verificarse."),
