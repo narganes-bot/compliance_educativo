@@ -214,9 +214,49 @@ const QUESTION_RESPONSIBLE = {
   q32: "Dirección (con Jefatura de estudios)",
 };
 
-// Devuelve la ficha completa de una pregunta: número, texto, propósito, riesgos
-// asociados (código y título), normas donde se regula (id y etiqueta) y el
-// responsable del cumplimiento de la obligación.
+// Referencia normativa PRECISA de cada pregunta, con el artículo cuando es
+// razonablemente seguro. Una misma norma se cita por artículos distintos según
+// la pregunta. Los puntos que dependen de desarrollo reglamentario o de la CCAA
+// se marcan «a verificar»: la numeración del capítulo educativo de la LOPIVI y
+// los protocolos autonómicos deben confirmarse en su redacción vigente.
+const QUESTION_NORMS = {
+  q1: "LOPIVI (LO 8/2021), art. 35 (designación del Coordinador/a de Bienestar y Protección).",
+  q2: "LOPIVI (LO 8/2021), art. 35 (perfil y formación del Coordinador/a de Bienestar).",
+  q3: "LOPIVI (LO 8/2021), capítulo educativo — entornos seguros (arts. 30 y ss., numeración a verificar).",
+  q4: "LOPIVI (LO 8/2021), protocolos de actuación frente a la violencia (artículo a verificar); protocolos autonómicos.",
+  q5: "LOPIVI (LO 8/2021), código de conducta y entornos seguros (artículo a verificar).",
+  q6: "LOE (LO 2/2006), art. 124 (plan de convivencia); protocolo autonómico de acoso escolar.",
+  q7: "Convenio de Budapest (ciberdelincuencia); protocolo autonómico de ciberacoso.",
+  q8: "LOPIVI (LO 8/2021), arts. 15-16 (deber de comunicación); Directiva 2011/93/UE; Convenio de Lanzarote.",
+  q9: "LOPIVI (LO 8/2021), art. 57 (certificación negativa del Registro Central de Delincuentes Sexuales).",
+  q10: "LOPIVI (LO 8/2021), art. 57; Directiva 2011/93/UE, art. 10 (comprobación de antecedentes).",
+  q11: "LOPIVI (LO 8/2021), arts. 13, 15-16 (canal y deber de comunicación).",
+  q12: "LOPIVI (LO 8/2021), arts. 15-16; LOPJM (LO 1/1996), art. 13 (deber de comunicación).",
+  q13: "Ley 40/2015, arts. 32 y ss. (trazabilidad de actuaciones); RGPD (UE 2016/679), art. 30 (registro de actividades).",
+  q14: "LOPIVI (LO 8/2021), formación del personal en protección a la infancia (artículo a verificar).",
+  q15: "Código Civil, arts. 1902-1903 (deber de vigilancia y custodia).",
+  q16: "Código Civil, arts. 1902-1903; normativa autonómica de actividades y salidas.",
+  q17: "Normativa autonómica de transporte escolar (condiciones de acompañamiento y seguridad).",
+  q18: "Normativa autonómica de comedores escolares; seguridad alimentaria (sistema APPCC).",
+  q19: "RGPD (UE 2016/679), arts. 5, 6 y 9; LOPDGDD (LO 3/2018), art. 7 (edad de consentimiento).",
+  q20: "RGPD (UE 2016/679), art. 5.1.f (confidencialidad e integridad); LOPDGDD, deber de confidencialidad.",
+  q21: "RGPD (UE 2016/679), arts. 37-39; LOPDGDD (LO 3/2018), arts. 34-37 (Delegado de Protección de Datos).",
+  q22: "LOPJM (LO 1/1996), art. 13; LOPIVI (LO 8/2021); LO 1/2004 (coordinación y derivación).",
+  q23: "Buena práctica de gestión (UNE-ISO 37301, auditoría interna); sin norma sancionadora directa.",
+  q24: "Buena práctica de gestión (plan de crisis y comunicación); sin norma específica.",
+  q25: "LOPIVI (LO 8/2021), obligaciones de la titularidad — dotación de medios (artículo a verificar).",
+  q26: "LOPIVI (LO 8/2021), supervisión y diligencia debida de la dirección (artículo a verificar).",
+  q27: "LOE (LO 2/2006), art. 124 (plan de convivencia).",
+  q28: "LO 1/2004 (violencia de género); LOPIVI (LO 8/2021).",
+  q29: "Protocolos autonómicos vigentes (acoso, ciberacoso, maltrato) de la Consejería de Educación.",
+  q30: "RD 393/2007, art. 2 y Anexo I.e (Plan de Autoprotección); art. 9 (régimen sancionador); normativa autonómica.",
+  q31: "RD 393/2007 (simulacros de evacuación); Ley 31/1995 (PRL), art. 20 (medidas de emergencia).",
+  q32: "Ley 31/1995 (PRL), art. 20 (medidas de emergencia); RD 393/2007.",
+};
+
+// Devuelve la ficha completa de una pregunta: número, texto, propósito,
+// responsable, riesgos asociados (código y título), la referencia normativa
+// precisa (con artículo) y las normas asociadas (id y etiqueta, para chips).
 function questionMeta(qid) {
   const q = QUESTIONS.find((x) => x.id === qid);
   if (!q) return null;
@@ -225,6 +265,7 @@ function questionMeta(qid) {
     q: q.q,
     purpose: QUESTION_HELP[qid] || "",
     responsible: QUESTION_RESPONSIBLE[qid] || "",
+    norms: QUESTION_NORMS[qid] || ((q.laws || []).map((id) => lawLabel(id)).join(", ") || "Buena práctica de gestión (sin norma específica)"),
     risks: (q.risks || []).map((code) => { const r = RISKS.find((x) => x.code === code); return { code, title: r ? r.title : code }; }),
     laws: (q.laws || []).map((id) => ({ id, label: lawLabel(id) })),
   };
@@ -427,7 +468,7 @@ function rd393Assessment(center) {
 
 module.exports = {
   LAW_CATALOG, LAW_LEVELS, lawShort, lawLabel, ROLES, roleLabel, roleShort,
-  RISKS, QUESTIONS, QUESTION_ACTIONS, QUESTION_HELP, QUESTION_RESPONSIBLE, questionMeta, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
+  RISKS, QUESTIONS, QUESTION_ACTIONS, QUESTION_HELP, QUESTION_RESPONSIBLE, QUESTION_NORMS, questionMeta, ANSWER_VALUE, ANSWER_LABEL, bandOf, BAND_LABEL,
   computeRisks, computeCoverage, CONSULTANT_ROLE,
   rd393Assessment, rd393FromCenter, RD393_OCCUPANCY_THRESHOLD, RD393_HEIGHT_THRESHOLD_M,
   DEFAULT_WEIGHTS, resolveWeights, effectiveWeight, questionInfluence,
