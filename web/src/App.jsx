@@ -17,7 +17,7 @@ const {
   computeRisks, computeCoverage,
   CONSULTANT_ROLE,
   rd393Assessment,
-  DEFAULT_WEIGHTS,
+  DEFAULT_WEIGHTS, questionInfluence,
 } = ENGINE;
 
 /* ================================================================== *
@@ -1557,6 +1557,7 @@ function WeightsEditor({ weights, onChange }) {
                   </span>
                 ))}
               </div>
+              <InfluenceBar qid={qid} weights={weights} />
             </div>
           ))}
         </div>
@@ -1573,6 +1574,35 @@ function WeightsEditor({ weights, onChange }) {
         <input style={inp} value={addVal} onChange={(e) => setAddVal(e.target.value)} inputMode="decimal" title="Peso" />
         <button onClick={addQuestionAdj} disabled={!addQ || !addRole} style={{ border: "none", background: (!addQ || !addRole) ? C.line : C.action, color: "#fff", borderRadius: 8, padding: "7px 12px", cursor: (!addQ || !addRole) ? "default" : "pointer", fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Plus size={13} /> Añadir ajuste</button>
         <button onClick={resetDefault} style={{ marginLeft: "auto", border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><RefreshCw size={13} /> Restaurar predeterminado</button>
+      </div>
+      {addQ && (
+        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, border: `1px dashed ${C.action}`, background: hexA(C.action, 0.05) }}>
+          <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 4 }}>Reparto de influencia actual de <b style={{ fontFamily: mono }}>{addQ}</b> entre quienes la contestan:</div>
+          <InfluenceBar qid={addQ} weights={weights} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Barra/etiquetas del reparto de influencia (%) de una pregunta. Suma 100%. */
+function InfluenceBar({ qid, weights }) {
+  const inf = questionInfluence(qid, weights);
+  if (!inf.length) return null;
+  const colors = ["#2E5E8C", "#3F8F6B", "#C98A2B", "#D06B3A", "#8C6BB2", "#B23A48", "#5A6B7A"];
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", height: 9, borderRadius: 5, overflow: "hidden", border: `1px solid ${C.line}` }}>
+        {inf.map((r, i) => <div key={r.role} title={`${r.label}: ${(r.share * 100).toFixed(1)}%`} style={{ width: `${r.share * 100}%`, background: colors[i % colors.length] }} />)}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+        {inf.map((r, i) => (
+          <span key={r.role} style={{ fontSize: 11, color: C.ink, display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[i % colors.length], display: "inline-block" }} />
+            {r.label.split(" / ")[0]}: <b>{(r.share * 100).toFixed(0)}%</b>
+          </span>
+        ))}
+        <span style={{ fontSize: 11, color: C.slate }}>· suma 100%</span>
       </div>
     </div>
   );
