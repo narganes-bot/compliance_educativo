@@ -145,24 +145,33 @@ const BAND_LABEL = { low: "Bajo", med: "Medio", high: "Alto", crit: "Crítico" }
 // Ponderación de respuestas (peso base por rol + excepciones por pregunta).
 // La probabilidad de cada riesgo se calcula como MEDIA PONDERADA de las
 // respuestas: cada respuesta pesa según el rol de quien la da y, si procede,
-// según un ajuste específico para esa pregunta. Predeterminado razonado:
+// según un reparto específico para esa pregunta. Predeterminado razonado:
 // se da algo más de peso a quien vive el control en el día a día, porque su
 // conocimiento refleja la implantación real. El consultor puede ajustar estos
 // pesos por modelo desde la aplicación.
+//
+// Dos niveles:
+//   · roles     → peso base por rol (multiplicador relativo; 1 = normal). Fija
+//                 el reparto de las preguntas SIN reparto propio.
+//   · questions → reparto de influencia de una pregunta, expresado en % que
+//                 suman 100 entre TODOS los roles que la contestan. Cuando una
+//                 pregunta tiene reparto propio, éste sustituye por completo al
+//                 peso base para esa pregunta. (Los números se normalizan igual
+//                 aunque no sumen exactamente 100.)
 const DEFAULT_WEIGHTS = {
   roles: {
     titularidad: 1.0, direccion: 1.0, coordinador: 1.1, jefatura: 1.0,
     profesorado: 1.2, nodocente: 1.1, dpd: 1.0, consultor: 1.0,
   },
   questions: {
-    q4:  { profesorado: 2.0, coordinador: 1.2, direccion: 0.8 },
-    q6:  { coordinador: 1.2, jefatura: 1.4 },
-    q11: { profesorado: 1.8, direccion: 0.8 },
-    q12: { profesorado: 2.0, nodocente: 1.8 },
-    q15: { profesorado: 1.5, jefatura: 1.2 },
-    q29: { coordinador: 1.5, jefatura: 1.3 },
-    q31: { profesorado: 1.5, jefatura: 1.3 },
-    q32: { profesorado: 1.8, nodocente: 1.8 },
+    q4:  { direccion: 20, coordinador: 30, profesorado: 50 }, // protocolos difundidos e implantados
+    q6:  { coordinador: 45, jefatura: 55 },                   // protocolo de violencia/acoso operativo
+    q11: { direccion: 20, coordinador: 30, profesorado: 50 }, // canal accesible y difundido
+    q12: { profesorado: 55, nodocente: 45 },                  // el personal conoce el deber de comunicar
+    q15: { jefatura: 45, profesorado: 55 },                   // ratios y vigilancia en el día a día
+    q29: { coordinador: 55, jefatura: 45 },                   // protocolos autonómicos aplicados
+    q31: { direccion: 20, jefatura: 35, profesorado: 45 },    // simulacros realizados
+    q32: { profesorado: 50, nodocente: 50 },                  // funciones del personal en emergencia
   },
 };
 

@@ -73,13 +73,16 @@ function normalizeOverrides(raw) {
 
 function normalizeWeights(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const clampW = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 5 ? n : null; };
+  // Peso base por rol: multiplicador relativo (0-20 por prudencia).
+  const clampRole = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 20 ? n : null; };
+  // Reparto por pregunta: porcentajes (0-100).
+  const clampPct = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null; };
   const out = {};
   if (raw.roles && typeof raw.roles === "object") {
     out.roles = {};
     for (const [role, v] of Object.entries(raw.roles)) {
       if (!ROLE_IDS.has(role)) continue;
-      const w = clampW(v); if (w != null) out.roles[role] = w;
+      const w = clampRole(v); if (w != null) out.roles[role] = w;
     }
   }
   if (raw.questions && typeof raw.questions === "object") {
@@ -89,7 +92,7 @@ function normalizeWeights(raw) {
       const clean = {};
       for (const [role, v] of Object.entries(rmap)) {
         if (!ROLE_IDS.has(role)) continue;
-        const w = clampW(v); if (w != null) clean[role] = w;
+        const w = clampPct(v); if (w != null) clean[role] = w;
       }
       if (Object.keys(clean).length) out.questions[qid] = clean;
     }
