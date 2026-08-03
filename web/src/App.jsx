@@ -1042,14 +1042,31 @@ function QHelpInline({ qid }) {
 }
 
 /* ------------------------- InterviewForm (compartido) ------------------------- */
-function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon = Send, initial = null }) {
+function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon = Send, initial = null, allowAll = false, draftKey = null }) {
   const isConsultantEdit = !!(initial && initial.role === CONSULTANT_ROLE);
-  const [role, setRole] = useState((initial && initial.role) || "profesorado");
-  const [name, setName] = useState((initial && (initial.name || initial.alias)) || "");
-  const [answers, setAnswers] = useState((initial && initial.answers) || {});
-  const [comments, setComments] = useState((initial && initial.comments) || {});
+  // Borrador guardado en este navegador (si draftKey está definido y no es edición).
+  const draft0 = (draftKey && !initial && typeof window !== "undefined")
+    ? (() => { try { return JSON.parse(window.localStorage.getItem(draftKey) || "null"); } catch { return null; } })()
+    : null;
+  const [role, setRole] = useState((initial && initial.role) || (draft0 && draft0.role) || "profesorado");
+  const [name, setName] = useState((initial && (initial.name || initial.alias)) || (draft0 && draft0.name) || "");
+  const [answers, setAnswers] = useState((initial && initial.answers) || (draft0 && draft0.answers) || {});
+  const [comments, setComments] = useState((initial && initial.comments) || (draft0 && draft0.comments) || {});
+  const [allQuestions, setAllQuestions] = useState(!!(draft0 && draft0.allQuestions)); // responder todas (no solo las del rol)
+  const [draftMsg, setDraftMsg] = useState(draft0 ? "Hemos recuperado tu borrador guardado en este navegador." : "");
   const [busy, setBusy] = useState(false);
-  const qs = isConsultantEdit ? QUESTIONS.filter((q) => (initial.answers || {})[q.id] !== undefined) : questionsForRole(role);
+  // Autoguardado del borrador en cada cambio (solo si hay draftKey).
+  useEffect(() => {
+    if (!draftKey || initial || typeof window === "undefined") return;
+    try { window.localStorage.setItem(draftKey, JSON.stringify({ role, name, answers, comments, allQuestions })); } catch { }
+  }, [draftKey, initial, role, name, answers, comments, allQuestions]);
+  const saveDraft = () => {
+    if (!draftKey || typeof window === "undefined") return;
+    try { window.localStorage.setItem(draftKey, JSON.stringify({ role, name, answers, comments, allQuestions })); setDraftMsg("Borrador guardado. Puedes cerrar y continuar más tarde en este mismo dispositivo."); } catch { }
+  };
+  const qs = isConsultantEdit
+    ? QUESTIONS.filter((q) => (initial.answers || {})[q.id] !== undefined)
+    : (allowAll && allQuestions ? QUESTIONS : questionsForRole(role));
   const answered = Object.keys(answers).length;
   const Icon = submitIcon;
   // Pase lo que pase (error del servidor, red caída, servidor "dormido"), el
@@ -1058,6 +1075,7 @@ function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon
     setBusy(true);
     try {
       await onSubmit({ id: (initial && initial.id) || genId(), role, name: name.trim(), answers, comments });
+      if (draftKey && typeof window !== "undefined") { try { window.localStorage.removeItem(draftKey); } catch { } }
       if (!initial) { setAnswers({}); setName(""); setComments({}); }
     } catch (e) {
       alert((e && e.message) || "No se pudo guardar. Comprueba la conexión e inténtalo de nuevo en unos segundos.");
@@ -1072,6 +1090,12 @@ function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon
           : <label><Lbl>Nivel jerárquico</Lbl><select style={field} value={role} onChange={(e) => { setRole(e.target.value); setAnswers({}); setComments({}); }}>{ROLES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}</select></label>}
         <label><Lbl>Nombre o iniciales (opcional)</Lbl><input style={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="p. ej. M. L." /></label>
       </div>
+      {allowAll && !isConsultantEdit && (
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer", padding: "9px 11px", borderRadius: 8, border: `1px solid ${allQuestions ? hexA(C.action, 0.5) : C.line}`, background: allQuestions ? hexA(C.action, 0.06) : "#fff", marginBottom: 10 }}>
+          <input type="checkbox" checked={allQuestions} onChange={(e) => setAllQuestions(e.target.checked)} style={{ width: 16, height: 16, marginTop: 1 }} />
+          <span style={{ fontSize: 12.5, color: C.ink }}>Responder <b>todas las preguntas</b> (no solo las de este rol). Útil para una primera aproximación contestada por una sola persona; cuantas más responda, mejor.</span>
+        </label>
+      )}
       <div style={{ margin: "6px 0", fontSize: 12, color: C.slate, fontFamily: mono }}>{answered}/{qs.length} respondidas</div>
       <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 8 }}>Puedes cambiar cualquier respuesta; pulsa de nuevo la opción marcada para dejarla en blanco. En «Parcial» y «No sé» puedes añadir un comentario.</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1090,7 +1114,9 @@ function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon
             </div>
           </div>); })}
       </div>
-      <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+      {draftMsg && <div style={{ marginTop: 12, fontSize: 12, color: C.low, display: "flex", gap: 6, alignItems: "center" }}><Check size={14} /> {draftMsg}</div>}
+      <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+        {draftKey && !initial && <PrimaryBtn onClick={saveDraft} ghost disabled={busy || answered === 0}><FileDown size={16} /> Guardar borrador</PrimaryBtn>}
         <PrimaryBtn onClick={go} disabled={busy || answered === 0}>{busy ? <Loader2 size={16} className="spin" /> : <Icon size={16} />} {submitLabel}</PrimaryBtn>
       </div>
     </div>
@@ -1154,7 +1180,7 @@ function Participant({ code, center, onBack }) {
       <Card style={{ maxWidth: 560 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
           <div style={{ width: 40, height: 40, borderRadius: 999, background: C.low, display: "grid", placeItems: "center" }}><Check size={22} color="#fff" /></div>
-          <div><div style={{ fontSize: 17, fontWeight: 700 }}>Entrevista enviada</div><div style={{ fontSize: 13, color: C.slate }}>Gracias. El coordinador verá tus respuestas agregadas en el panel del centro.</div></div>
+          <div><div style={{ fontSize: 17, fontWeight: 700 }}>Entrevista enviada</div><div style={{ fontSize: 13, color: C.slate }}>Gracias. Tus respuestas han llegado al consultor, que elaborará el informe del centro. El borrador guardado en este navegador se ha eliminado.</div></div>
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
           <PrimaryBtn onClick={() => setDone(false)} ghost><Plus size={16} /> Enviar otra entrevista</PrimaryBtn>
@@ -1166,8 +1192,12 @@ function Participant({ code, center, onBack }) {
   return (
     <div><BackLink onClick={onBack} label="Salir" />
       <Card>
-        <H sub={`Centro: ${center?.name || "—"} · sala ${code}`}>Tu entrevista</H>
-        <InterviewForm onSubmit={submit} submitLabel="Enviar entrevista" submitIcon={Send} />
+        <H sub={`Centro: ${center?.name || "—"} · código ${code}`}>Tu entrevista</H>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 8, background: hexA(C.action, 0.06), border: `1px solid ${hexA(C.action, 0.25)}`, color: C.ink, fontSize: 12.5, marginBottom: 14, lineHeight: 1.5 }}>
+          <Info size={15} style={{ flexShrink: 0, marginTop: 1, color: C.action }} />
+          <span>Responde con tranquilidad. Puedes <b>guardar el borrador</b> y continuar más tarde en este mismo dispositivo, y cuando termines pulsar <b>«Enviar al consultor»</b>. En cada pregunta tienes un icono de ayuda (ℹ) con su propósito, el riesgo asociado y la norma. El informe lo elaborará el consultor; tú no necesitas verlo.</span>
+        </div>
+        <InterviewForm allowAll draftKey={`forentia_draft_${code}`} onSubmit={submit} submitLabel="Enviar al consultor" submitIcon={Send} />
       </Card>
     </div>
   );
@@ -1197,6 +1227,10 @@ function Quick({ onBack }) {
       <div><BackLink onClick={() => setStep("center")} />
         <Card style={{ marginBottom: 16 }}>
           <H sub="Añade una entrevista por cada persona o carga un ejemplo. Cuando tengas suficientes, genera el modelo.">Entrevistas — {center.name}</H>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 8, background: hexA(C.med, 0.14), border: `1px solid ${hexA(C.med, 0.4)}`, color: "#7A5A16", fontSize: 12.5, marginBottom: 12, lineHeight: 1.5 }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>Puedes pedir a una sola persona (p. ej. la dirección) que responda, activando «Responder todas las preguntas» al añadir la entrevista. Es una <b>primera aproximación</b> al nivel de cumplimiento: al no participar todos los niveles, es menos fiable y no detecta discrepancias entre roles. Para un diagnóstico sólido, recoge una entrevista por cada rol.</span>
+          </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <PrimaryBtn onClick={() => setAdding(true)} ghost><Plus size={16} /> Nueva entrevista</PrimaryBtn>
             <PrimaryBtn onClick={() => setInterviews(SEED())} ghost><Users size={16} /> Cargar ejemplo</PrimaryBtn>
@@ -1217,7 +1251,7 @@ function Quick({ onBack }) {
         {adding && (
           <Card style={{ borderColor: C.navy }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Nueva entrevista</div>
-            <InterviewForm submitLabel="Guardar entrevista" submitIcon={Check} onSubmit={async (iv) => { setInterviews((p) => [...p, iv]); setAdding(false); }} />
+            <InterviewForm allowAll submitLabel="Guardar entrevista" submitIcon={Check} onSubmit={async (iv) => { setInterviews((p) => [...p, iv]); setAdding(false); }} />
             <div style={{ marginTop: 10 }}><button onClick={() => setAdding(false)} style={{ border: "none", background: "transparent", color: C.slate, fontSize: 12.5, cursor: "pointer" }}>Cancelar</button></div>
           </Card>
         )}
