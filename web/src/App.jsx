@@ -443,6 +443,13 @@ export default function App() {
   const [authed, setAuthed] = useState(store.mode !== "api");
   const logout = () => { try { store.setToken && store.setToken(null); } catch { } setAuthed(false); setView("home"); };
   const canModels = (store.mode === "api" && authed) || (store.mode === "local" && store.persistent);
+  // Convierte un diagnóstico rápido (en memoria) en una sala guardada: crea la
+  // sala, vuelca las entrevistas ya recogidas y abre el panel (con código/enlace).
+  const saveQuickAsRoom = async (centerData, interviews) => {
+    const { code: cd } = await store.createRoom(centerData);
+    for (const iv of interviews) { try { await store.submitInterview(cd, iv); } catch { } }
+    setCode(cd); setCenter(centerData); setView("dashboard");
+  };
   const [pwOpen, setPwOpen] = useState(false);
   const [resetToken, setResetToken] = useState(null);
   const [me, setMe] = useState(null);
@@ -460,6 +467,21 @@ export default function App() {
       setResetToken(t);
       setView("reset");
       window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+    // Enlace de entrevista (?entrevista=CÓDIGO): abre directamente la entrevista
+    // con el código puesto. Si no se resuelve la sala, cae en "unirse con código".
+    const cd = params.get("entrevista");
+    if (cd) {
+      const codeUp = cd.trim().toUpperCase();
+      window.history.replaceState({}, "", window.location.pathname);
+      (async () => {
+        try {
+          const room = await store.getRoom(codeUp);
+          if (room) { setCode(codeUp); setCenter(room); setView("participant"); return; }
+        } catch { }
+        setView("join");
+      })();
     }
   }, []);
 
@@ -502,7 +524,7 @@ export default function App() {
         {view === "join" && <Join onJoined={(cd, ce) => { setCode(cd); setCenter(ce); setView("participant"); }} onBack={() => setView("home")} />}
         {view === "participant" && <Participant code={code} center={center} onBack={() => setView("home")} />}
         {view === "dashboard" && <Dashboard code={code} center={center} onBack={() => setView("home")} />}
-        {view === "quick" && <Quick onBack={() => setView("home")} />}
+        {view === "quick" && <Quick onBack={() => setView("home")} canSaveRoom={canModels} onSaveAsRoom={saveQuickAsRoom} />}
         {view === "demo" && <Demo onBack={() => setView("home")} />}
         {view === "models" && (store.mode === "api" && !authed
           ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} onForgot={() => setView("forgot")} />
@@ -1204,12 +1226,22 @@ function Participant({ code, center, onBack }) {
 }
 
 /* ------------------------------ Quick ------------------------------ */
-function Quick({ onBack }) {
+function Quick({ onBack, canSaveRoom = false, onSaveAsRoom }) {
   const [step, setStep] = useState("center");
   const [center, setCenter] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false, evacEspecial: false });
   const [interviews, setInterviews] = useState([]);
   const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
   const set = (k) => (e) => setCenter({ ...center, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+  const doSaveAsRoom = async () => {
+    if (!onSaveAsRoom || !interviews.length) return;
+    setSaving(true);
+    try { await onSaveAsRoom(center, interviews); } // si tiene éxito, la app navega al panel
+    catch (e) { alert((e && e.message) || "No se pudo guardar como sala."); setSaving(false); }
+  };
+  const SaveAsRoomBtn = () => (canSaveRoom && interviews.length > 0)
+    ? <PrimaryBtn onClick={doSaveAsRoom} ghost disabled={saving}>{saving ? <Loader2 size={16} className="spin" /> : <Share2 size={16} />} Guardar como sala (compartir código)</PrimaryBtn>
+    : null;
 
   if (step === "center") {
     return (
@@ -1234,8 +1266,9 @@ function Quick({ onBack }) {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <PrimaryBtn onClick={() => setAdding(true)} ghost><Plus size={16} /> Nueva entrevista</PrimaryBtn>
             <PrimaryBtn onClick={() => setInterviews(SEED())} ghost><Users size={16} /> Cargar ejemplo</PrimaryBtn>
-            {interviews.length > 0 && <div style={{ marginLeft: "auto" }}><PrimaryBtn onClick={() => setStep("results")}>Ver modelo <ChevronRight size={16} /></PrimaryBtn></div>}
+            {interviews.length > 0 && <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}><SaveAsRoomBtn /><PrimaryBtn onClick={() => setStep("results")}>Ver modelo <ChevronRight size={16} /></PrimaryBtn></div>}
           </div>
+          {canSaveRoom && interviews.length > 0 && <div style={{ marginTop: 10, fontSize: 11.5, color: C.slate, lineHeight: 1.5 }}>Consejo: si quieres que alguien lo complete a distancia, pulsa «Guardar como sala»: obtendrás un código y un enlace para compartir, y podrás retomarlo más tarde.</div>}
           {interviews.length > 0 && (
             <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
               {interviews.map((iv) => (
@@ -1260,6 +1293,12 @@ function Quick({ onBack }) {
   }
   return (
     <div><BackLink onClick={() => setStep("collect")} label="Volver a entrevistas" />
+      {canSaveRoom && interviews.length > 0 && (
+        <Card style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, color: C.slate, display: "flex", gap: 8, alignItems: "center" }}><Share2 size={14} /> ¿Quieres conservar este diagnóstico o que alguien lo complete a distancia? Guárdalo como sala y obtendrás código y enlace para compartir.</span>
+          <SaveAsRoomBtn />
+        </Card>
+      )}
       <Results center={center} interviews={interviews} serverDoc={store.mode === "api" ? () => store.downloadQuickDocument(center, interviews, {}) : null} />
     </div>
   );
@@ -1398,6 +1437,7 @@ function Dashboard({ code, center: centerProp, onBack }) {
   const [loading, setLoading] = useState(true);
   const [auto, setAuto] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [interviewing, setInterviewing] = useState(false);
   const [filling, setFilling] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -1443,6 +1483,8 @@ function Dashboard({ code, center: centerProp, onBack }) {
   const risks = computeRisks(interviews, overrides, center, weights);
   const critHigh = risks.filter((r) => ["crit", "high"].includes(r.band)).sort((a, b) => b.level - a.level);
   const copy = async () => { try { await navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { } };
+  const participantLink = () => `${window.location.origin}${window.location.pathname}?entrevista=${code}`;
+  const copyLink = async () => { try { await navigator.clipboard.writeText(participantLink()); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1800); } catch { } };
   const reset = async () => { if (!window.confirm("¿Vaciar todas las entrevistas de esta sala? No se puede deshacer.")) return; await store.resetInterviews(code); load(); };
   const saveInterview = async (iv) => { await store.submitInterview(code, iv); await load(); };
   const updateInterviewHandler = async (iv) => { await store.updateInterview(code, editing.id, iv); setEditing(null); await load(); };
@@ -1464,7 +1506,10 @@ function Dashboard({ code, center: centerProp, onBack }) {
           </div>
         </div>
         <div style={{ marginTop: 12, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-          <span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: C.slate }}><Share2 size={13} /> Comparte el código para que cada persona responda, o registra tú mismo la entrevista.</span>
+          <span style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: C.slate, flexWrap: "wrap" }}>
+            <Share2 size={13} /> Comparte el código o el enlace para que cada persona responda a distancia, o registra tú mismo la entrevista.
+            <button onClick={copyLink} style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "5px 10px", cursor: "pointer", color: linkCopied ? C.low : C.navy, fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>{linkCopied ? <Check size={13} /> : <Share2 size={13} />} {linkCopied ? "Enlace copiado" : "Copiar enlace"}</button>
+          </span>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <PrimaryBtn onClick={() => { setFilling(false); setInterviewing((v) => !v); }} ghost={interviewing}><Plus size={16} /> {interviewing ? "Cerrar" : "Registrar una entrevista"}</PrimaryBtn>
             {interviews.length > 0 && <PrimaryBtn onClick={() => { setInterviewing(false); setFilling((v) => !v); }} ghost={!filling}><Zap size={16} /> {filling ? "Cerrar" : `Completar huecos${gapCount ? ` (${gapCount})` : ""}`}</PrimaryBtn>}
