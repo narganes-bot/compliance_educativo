@@ -519,7 +519,7 @@ export default function App() {
         {view === "join" && <Join onJoined={(cd, ce) => { setCode(cd); setCenter(ce); setView("participant"); }} onBack={() => setView("home")} />}
         {view === "participant" && <Participant code={code} center={center} onBack={() => setView("home")} />}
         {view === "dashboard" && <Dashboard code={code} center={center} onBack={() => setView("home")} />}
-        {view === "quick" && <Quick onBack={() => setView("home")} canSaveRoom={canModels} onOpenRoom={openRoom} />}
+        {view === "quick" && <Quick onBack={() => setView("home")} canSaveRoom={canModels} onOpenRoom={openRoom} authed={authed} onAuthed={() => setAuthed(true)} onForgot={() => setView("forgot")} />}
         {view === "demo" && <Demo onBack={() => setView("home")} />}
         {view === "models" && (store.mode === "api" && !authed
           ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} onForgot={() => setView("forgot")} />
@@ -1221,7 +1221,7 @@ function Participant({ code, center, onBack }) {
 }
 
 /* ------------------------------ Quick ------------------------------ */
-function Quick({ onBack, canSaveRoom = false, onOpenRoom }) {
+function Quick({ onBack, canSaveRoom = false, onOpenRoom, authed = false, onAuthed, onForgot }) {
   const [step, setStep] = useState("center");
   const [center, setCenter] = useState({ name: "", tipo: "concertada", etapas: "", alumnos: "", ccaa: "", docentes: "", noDocentes: "", otras: "", altura28: false, evacEspecial: false });
   const [interviews, setInterviews] = useState([]);
@@ -1230,11 +1230,12 @@ function Quick({ onBack, canSaveRoom = false, onOpenRoom }) {
   const [saved, setSaved] = useState(null);         // { code } tras crear la sala para compartir
   const [linkCopied, setLinkCopied] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const needsLogin = store.mode === "api" && !authed; // hay que iniciar sesión para crear la sala
   const set = (k) => (e) => setCenter({ ...center, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
   // Crea la sala (para poder compartir código/enlace) y vuelca las entrevistas
   // que ya se hayan añadido. El enlace exige una sala guardada en el servidor.
   const doShare = async () => {
-    if (!canSaveRoom) return;
     setSaving(true);
     try {
       const { code: cd } = await store.createRoom(center);
@@ -1251,8 +1252,9 @@ function Quick({ onBack, canSaveRoom = false, onOpenRoom }) {
       else { setCodeCopied(true); setTimeout(() => setCodeCopied(false), 1800); }
     } catch { }
   };
-  const ShareBtn = () => (canSaveRoom && interviews.length > 0)
-    ? <PrimaryBtn onClick={doShare} ghost disabled={saving}>{saving ? <Loader2 size={16} className="spin" /> : <Share2 size={16} />} Crear enlace para compartir</PrimaryBtn>
+  const clickShare = () => { if (needsLogin) setShowLogin(true); else doShare(); };
+  const ShareBtn = () => (!saved)
+    ? <PrimaryBtn onClick={clickShare} ghost disabled={saving}>{saving ? <Loader2 size={16} className="spin" /> : <Share2 size={16} />} Crear enlace para compartir</PrimaryBtn>
     : null;
   // Panel con código y enlace para compartir, una vez creada la sala.
   const SharedPanel = () => saved ? (
@@ -1271,6 +1273,15 @@ function Quick({ onBack, canSaveRoom = false, onOpenRoom }) {
       </div>
     </Card>
   ) : null;
+
+  // Si hace falta iniciar sesión para crear el enlace, mostramos el login;
+  // al entrar, se crea la sala y el enlace automáticamente.
+  if (showLogin) {
+    return <Login
+      onOk={() => { setShowLogin(false); if (onAuthed) onAuthed(); doShare(); }}
+      onBack={() => setShowLogin(false)}
+      onForgot={() => { setShowLogin(false); onForgot && onForgot(); }} />;
+  }
 
   if (step === "center") {
     return (
@@ -1293,12 +1304,15 @@ function Quick({ onBack, canSaveRoom = false, onOpenRoom }) {
             <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>Puedes pedir a una sola persona (p. ej. la dirección) que responda, activando «Responder todas las preguntas» al añadir la entrevista. Es una <b>primera aproximación</b> al nivel de cumplimiento: al no participar todos los niveles, es menos fiable y no detecta discrepancias entre roles. Para un diagnóstico sólido, recoge una entrevista por cada rol.</span>
           </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <PrimaryBtn onClick={() => setAdding(true)} ghost><Plus size={16} /> Nueva entrevista</PrimaryBtn>
             <PrimaryBtn onClick={() => setInterviews(SEED())} ghost><Users size={16} /> Cargar ejemplo</PrimaryBtn>
-            {interviews.length > 0 && <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>{!saved && <ShareBtn />}<PrimaryBtn onClick={() => setStep("results")}>Ver modelo <ChevronRight size={16} /></PrimaryBtn></div>}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <ShareBtn />
+              {interviews.length > 0 && <PrimaryBtn onClick={() => setStep("results")}>Ver modelo <ChevronRight size={16} /></PrimaryBtn>}
+            </div>
           </div>
-          {canSaveRoom && !saved && interviews.length > 0 && <div style={{ marginTop: 10, fontSize: 11.5, color: C.slate, lineHeight: 1.5 }}>Consejo: si quieres que una persona del centro lo complete a distancia, pulsa «Crear enlace para compartir»: obtendrás un código y un enlace para enviarle (se guarda como sala).</div>}
+          {!saved && <div style={{ marginTop: 10, fontSize: 11.5, color: C.slate, lineHeight: 1.5 }}>Para que una persona del centro lo complete a distancia, pulsa «Crear enlace para compartir»: obtendrás un código y un enlace para enviarle (si no has iniciado sesión, te lo pedirá primero). Puedes hacerlo con el diagnóstico vacío —que lo rellene él entero— o con lo que ya hayas añadido. Se guarda como sala.</div>}
           {interviews.length > 0 && (
             <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
               {interviews.map((iv) => (
@@ -1324,7 +1338,7 @@ function Quick({ onBack, canSaveRoom = false, onOpenRoom }) {
   return (
     <div><BackLink onClick={() => setStep("collect")} label="Volver a entrevistas" />
       <SharedPanel />
-      {canSaveRoom && !saved && interviews.length > 0 && (
+      {!saved && interviews.length > 0 && (
         <Card style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <span style={{ fontSize: 12.5, color: C.slate, display: "flex", gap: 8, alignItems: "center" }}><Share2 size={14} /> ¿Quieres que una persona del centro lo complete a distancia, o conservar este diagnóstico? Crea el enlace para compartir (se guarda como sala).</span>
           <ShareBtn />
