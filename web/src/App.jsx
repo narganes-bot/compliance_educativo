@@ -447,6 +447,7 @@ export default function App() {
   const openRoom = (cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); };
   const [pwOpen, setPwOpen] = useState(false);
   const [resetToken, setResetToken] = useState(null);
+  const [participantAll, setParticipantAll] = useState(false); // entrar a la entrevista con "responder todas" activado (enlace compartido)
   const [me, setMe] = useState(null);
 
   // Perfil del usuario autenticado (para saber su rol y su nombre).
@@ -473,7 +474,7 @@ export default function App() {
       (async () => {
         try {
           const room = await store.getRoom(codeUp);
-          if (room) { setCode(codeUp); setCenter(room); setView("participant"); return; }
+          if (room) { setCode(codeUp); setCenter(room); setParticipantAll(true); setView("participant"); return; }
         } catch { }
         setView("join");
       })();
@@ -516,8 +517,8 @@ export default function App() {
         {view === "create" && (store.mode === "api" && !authed
           ? <Login onOk={() => setAuthed(true)} onBack={() => setView("home")} onForgot={() => setView("forgot")} />
           : <Create onDone={(cd, ce) => { setCode(cd); setCenter(ce); setView("dashboard"); }} onBack={() => setView("home")} />)}
-        {view === "join" && <Join onJoined={(cd, ce) => { setCode(cd); setCenter(ce); setView("participant"); }} onBack={() => setView("home")} />}
-        {view === "participant" && <Participant code={code} center={center} onBack={() => setView("home")} />}
+        {view === "join" && <Join onJoined={(cd, ce) => { setCode(cd); setCenter(ce); setParticipantAll(false); setView("participant"); }} onBack={() => setView("home")} />}
+        {view === "participant" && <Participant code={code} center={center} defaultAll={participantAll} onBack={() => setView("home")} />}
         {view === "dashboard" && <Dashboard code={code} center={center} onBack={() => setView("home")} />}
         {view === "quick" && <Quick onBack={() => setView("home")} canSaveRoom={canModels} onOpenRoom={openRoom} authed={authed} onAuthed={() => setAuthed(true)} onForgot={() => setView("forgot")} />}
         {view === "demo" && <Demo onBack={() => setView("home")} />}
@@ -1059,7 +1060,7 @@ function QHelpInline({ qid }) {
 }
 
 /* ------------------------- InterviewForm (compartido) ------------------------- */
-function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon = Send, initial = null, allowAll = false, draftKey = null }) {
+function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon = Send, initial = null, allowAll = false, draftKey = null, defaultAll = false }) {
   const isConsultantEdit = !!(initial && initial.role === CONSULTANT_ROLE);
   // Borrador guardado en este navegador (si draftKey está definido y no es edición).
   const draft0 = (draftKey && !initial && typeof window !== "undefined")
@@ -1069,7 +1070,7 @@ function InterviewForm({ onSubmit, submitLabel = "Enviar entrevista", submitIcon
   const [name, setName] = useState((initial && (initial.name || initial.alias)) || (draft0 && draft0.name) || "");
   const [answers, setAnswers] = useState((initial && initial.answers) || (draft0 && draft0.answers) || {});
   const [comments, setComments] = useState((initial && initial.comments) || (draft0 && draft0.comments) || {});
-  const [allQuestions, setAllQuestions] = useState(!!(draft0 && draft0.allQuestions)); // responder todas (no solo las del rol)
+  const [allQuestions, setAllQuestions] = useState(draft0 ? !!draft0.allQuestions : !!defaultAll); // responder todas (no solo las del rol)
   const [draftMsg, setDraftMsg] = useState(draft0 ? "Hemos recuperado tu borrador guardado en este navegador." : "");
   const [busy, setBusy] = useState(false);
   // Autoguardado del borrador en cada cambio (solo si hay draftKey).
@@ -1189,7 +1190,7 @@ function ConsultantFill({ interviews, onSubmit }) {
 }
 
 /* --------------------------- Participant --------------------------- */
-function Participant({ code, center, onBack }) {
+function Participant({ code, center, onBack, defaultAll = false }) {
   const [done, setDone] = useState(false);
   const submit = async (iv) => { await store.submitInterview(code, iv); setDone(true); };
   if (done) {
@@ -1214,7 +1215,7 @@ function Participant({ code, center, onBack }) {
           <Info size={15} style={{ flexShrink: 0, marginTop: 1, color: C.action }} />
           <span>Responde con tranquilidad. Puedes <b>guardar el borrador</b> y continuar más tarde en este mismo dispositivo, y cuando termines pulsar <b>«Enviar al consultor»</b>. En cada pregunta tienes un icono de ayuda (ℹ) con su propósito, el riesgo asociado y la norma. El informe lo elaborará el consultor; tú no necesitas verlo.</span>
         </div>
-        <InterviewForm allowAll draftKey={`forentia_draft_${code}`} onSubmit={submit} submitLabel="Enviar al consultor" submitIcon={Send} />
+        <InterviewForm allowAll defaultAll={defaultAll} draftKey={`forentia_draft_${code}`} onSubmit={submit} submitLabel="Enviar al consultor" submitIcon={Send} />
       </Card>
     </div>
   );
