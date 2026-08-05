@@ -47,4 +47,19 @@ function inviteUserEmailHtml(link, consultancyName) {
   </div>`;
 }
 
-module.exports = { sendMail, passwordResetEmailHtml, inviteUserEmailHtml };
+// Plantilla del aviso al consultor cuando una persona envía su entrevista.
+function newInterviewEmailHtml(centerName, code) {
+  const appUrl = (config.frontendUrl || "").replace(/\/$/, "");
+  const btn = appUrl
+    ? `<p style="margin:0 0 18px"><a href="${appUrl}" style="background:#1F3864;color:#ffffff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:600">Abrir la herramienta</a></p>`
+    : "";
+  return `<div style="font-family:Arial,sans-serif;color:#16202E;max-width:480px;margin:0 auto;line-height:1.5">
+    <p style="color:#1F3864;font-weight:700;font-size:16px;margin:0 0 14px">Forentia 360 · Compliance educativo</p>
+    <p style="margin:0 0 10px">Se ha recibido una nueva entrevista del centro <b>${centerName || "—"}</b>${code ? ` (código <b>${code}</b>)` : ""}.</p>
+    <p style="margin:0 0 14px">Entra en la herramienta, abre esa sala en «Modelos de prevención» y ya podrás revisar las respuestas y generar el informe.</p>
+    ${btn}
+    <p style="font-size:12.5px;color:#54627A;margin:0">Aviso automático. No es necesario responder a este correo.</p>
+  </div>`;
+}
+
+module.exports = { sendMail, passwordResetEmailHtml, inviteUserEmailHtml, newInterviewEmailHtml };

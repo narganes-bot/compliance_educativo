@@ -7,7 +7,7 @@ const IO = require("./engine/engine-io.js");
 const { buildDocxBuffer, safeName } = require("./docgen.js");
 const { createRateLimiter } = require("./rateLimit");
 const { config } = require("./config");
-const { sendMail, passwordResetEmailHtml, inviteUserEmailHtml } = require("./mailer.js");
+const { sendMail, passwordResetEmailHtml, inviteUserEmailHtml, newInterviewEmailHtml } = require("./mailer.js");
 
 // Mapea el centro almacenado al formato que consume el motor.
 const toEngineCenter = (c) => {
@@ -52,6 +52,24 @@ function buildRouter(store) {
   const r = express.Router();
   const ipOf = (req) => req.ip || (req.socket && req.socket.remoteAddress) || null;
   const audit = async (cid, entry) => { try { if (cid) await store.addAudit(cid, entry); } catch (e) { console.error("audit:", e.message); } };
+  // Aviso por correo a los usuarios de la consultora cuando llega una entrevista.
+  // Tolerante a fallos y "dispara y olvida": nunca bloquea ni rompe el envío.
+  const notifyNewInterview = (consultancyId, code) => {
+    (async () => {
+      try {
+        if (!consultancyId) return;
+        const users = await store.listUsers(consultancyId);
+        const recipients = (users || []).map((u) => u.email).filter(Boolean);
+        if (!recipients.length) return;
+        let roomName = "un centro";
+        try { const room = await store.getRoomPublic(code); if (room && room.center && room.center.name) roomName = room.center.name; } catch { }
+        for (const to of recipients) {
+          try { await sendMail({ to, subject: `Nueva entrevista recibida · ${roomName}`, html: newInterviewEmailHtml(roomName, code) }); }
+          catch (e) { console.error("notify mail:", e.message); }
+        }
+      } catch (e) { console.error("notifyNewInterview:", e.message); }
+    })();
+  };
   const publicLimiter = createRateLimiter(config.rateLimits.participant);
   const authLimiter = createRateLimiter(config.rateLimits.auth);
   const requireOwner = (req, res, next) => { if (req.auth.role !== "owner") fail(403, "forbidden", "Solo el propietario de la consultora puede gestionar usuarios."); next(); };
@@ -315,6 +333,7 @@ function buildRouter(store) {
     try {
       const id = await store.submitInterview(req.params.token, { role: iv.role, alias: iv.alias, answers: iv.answers, comments: iv.comments });
       await audit(ctx.consultancy_id, { action: "submit_interview", entity: "interview", entity_id: id, ip: ipOf(req) });
+      notifyNewInterview(ctx.consultancy_id, ctx.campaign && ctx.campaign.code);
       res.status(201).json({ ok: true, interviewId: id });
     } catch (e) {
       if (e.code === "link_expired") fail(410, "link_expired", "El enlace ha caducado.");
@@ -337,6 +356,7 @@ function buildRouter(store) {
     try {
       const { id, consultancy_id } = await store.submitInterviewByCode(req.params.code, { role: iv.role, alias: iv.alias, answers: iv.answers, comments: iv.comments });
       await audit(consultancy_id, { action: "submit_interview", entity: "interview", entity_id: id, ip: ipOf(req) });
+      notifyNewInterview(consultancy_id, req.params.code);
       res.status(201).json({ ok: true, interviewId: id });
     } catch (e) {
       if (e.code === "campaign_closed") fail(409, "campaign_closed", "La campaña no admite envíos.");
