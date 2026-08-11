@@ -25,7 +25,7 @@ async function sendMail({ to, subject, html }) {
 // Plantilla del correo de restablecimiento de contraseña.
 function passwordResetEmailHtml(link) {
   return `<div style="font-family:Arial,sans-serif;color:#16202E;max-width:480px;margin:0 auto;line-height:1.5">
-    <p style="color:#1F3864;font-weight:700;font-size:16px;margin:0 0 14px">Forentia 360 · Compliance educativo</p>
+    <p style="color:#1F3864;font-weight:700;font-size:16px;margin:0 0 14px">Diligentia educativa · una solución de Forentia 360</p>
     <p style="margin:0 0 10px">Hemos recibido una solicitud para restablecer tu contraseña.</p>
     <p style="margin:0 0 18px">
       <a href="${link}" style="background:#1F3864;color:#ffffff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:600">Restablecer contraseña</a>
@@ -38,7 +38,7 @@ function passwordResetEmailHtml(link) {
 // Plantilla del correo de invitación a un nuevo usuario de la consultora.
 function inviteUserEmailHtml(link, consultancyName) {
   return `<div style="font-family:Arial,sans-serif;color:#16202E;max-width:480px;margin:0 auto;line-height:1.5">
-    <p style="color:#1F3864;font-weight:700;font-size:16px;margin:0 0 14px">Forentia 360 · Compliance educativo</p>
+    <p style="color:#1F3864;font-weight:700;font-size:16px;margin:0 0 14px">Diligentia educativa · una solución de Forentia 360</p>
     <p style="margin:0 0 10px">Te han dado acceso a la herramienta${consultancyName ? ` de <b>${consultancyName}</b>` : ""} como consultor/a.</p>
     <p style="margin:0 0 18px">
       <a href="${link}" style="background:#1F3864;color:#ffffff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:600">Crear mi contraseña</a>
@@ -54,7 +54,7 @@ function newInterviewEmailHtml(centerName, code) {
     ? `<p style="margin:0 0 18px"><a href="${appUrl}" style="background:#1F3864;color:#ffffff;padding:11px 20px;border-radius:8px;text-decoration:none;display:inline-block;font-weight:600">Abrir la herramienta</a></p>`
     : "";
   return `<div style="font-family:Arial,sans-serif;color:#16202E;max-width:480px;margin:0 auto;line-height:1.5">
-    <p style="color:#1F3864;font-weight:700;font-size:16px;margin:0 0 14px">Forentia 360 · Compliance educativo</p>
+    <p style="color:#1F3864;font-weight:700;font-size:16px;margin:0 0 14px">Diligentia educativa · una solución de Forentia 360</p>
     <p style="margin:0 0 10px">Se ha recibido una nueva entrevista del centro <b>${centerName || "—"}</b>${code ? ` (código <b>${code}</b>)` : ""}.</p>
     <p style="margin:0 0 14px">Entra en la herramienta, abre esa sala en «Modelos de prevención» y ya podrás revisar las respuestas y generar el informe.</p>
     ${btn}

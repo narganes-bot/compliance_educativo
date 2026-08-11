@@ -120,7 +120,7 @@ function buildRouter(store) {
       await store.createPasswordResetToken(user.id, hashToken(rawToken), expiresAt);
       const link = `${config.frontendUrl.replace(/\/$/, "")}/?reset_token=${rawToken}`;
       try {
-        await sendMail({ to: user.email, subject: "Restablecer tu contraseña · Forentia 360", html: passwordResetEmailHtml(link) });
+        await sendMail({ to: user.email, subject: "Restablecer tu contraseña · Diligentia educativa", html: passwordResetEmailHtml(link) });
       } catch (e) { console.error("mailer forgot-password:", e.message); }
       await audit(user.consultancy_id, { actor_user_id: user.id, action: "password_reset_requested", ip: ipOf(req) });
     }
@@ -164,7 +164,7 @@ function buildRouter(store) {
     const link = `${config.frontendUrl.replace(/\/$/, "")}/?reset_token=${rawToken}`;
     try {
       const consultancy = await store.getConsultancy(req.auth.consultancyId);
-      await sendMail({ to: newUser.email, subject: "Te han invitado a Forentia 360", html: inviteUserEmailHtml(link, consultancy && consultancy.name) });
+      await sendMail({ to: newUser.email, subject: "Te han invitado a Diligentia educativa", html: inviteUserEmailHtml(link, consultancy && consultancy.name) });
     } catch (e) { console.error("mailer invite-user:", e.message); }
     await audit(req.auth.consultancyId, { actor_user_id: req.auth.userId, action: "create_user", entity: "app_user", entity_id: newUser.id, ip: ipOf(req) });
     res.status(201).json({ user: { id: newUser.id, email: newUser.email, display_name: newUser.display_name, role: newUser.role } });
