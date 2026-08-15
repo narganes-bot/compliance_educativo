@@ -495,8 +495,8 @@ export default function App() {
             <Scale size={19} color="#fff" />
           </button>
           <div style={{ lineHeight: 1.15, flex: 1 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: C.navy, fontFamily: mono, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 1 }}>Diligentia educativa</div>
-            <div style={{ fontWeight: 700, fontSize: 15, letterSpacing: "-0.01em" }}>El cumplimiento que protege a tu centro</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.navy, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 2 }}>Diligentia educativa</div>
+            <div style={{ fontWeight: 400, fontSize: 15, color: C.ink, letterSpacing: "-0.01em" }}>El cumplimiento que protege a tu centro</div>
             <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.35 }}>Una solución de <b style={{ color: C.slate }}>Forentia 360</b> a los requisitos de la LOPIVI (LO 8/2021), la LOPJM (LO 1/1996) y la LOE (LO 2/2006), entre otras, conforme a las directrices de la ISO 37301:2021</div>
           </div>
           {store.mode === "local" && !store.persistent && <span title="Sin almacenamiento persistente en este entorno" style={{ fontSize: 11, color: C.med, fontFamily: mono, display: "inline-flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> modo local</span>}
