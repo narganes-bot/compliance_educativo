@@ -436,6 +436,87 @@ function exportJSON(center, interviews) {
 }
 
 /* ============================== APP ============================== */
+/* ------------------------- Ayuda y FAQ ------------------------- */
+const HELP_FAQ = [
+  { title: "Si te han enviado un enlace o un código para responder", items: [
+    { q: "¿Qué es esto y para qué sirve?", a: "Es un cuestionario para valorar cómo de preparado está tu centro en materia de protección de la infancia (LOPIVI). Tus respuestas ayudan al consultor a elaborar un informe con recomendaciones para el colegio." },
+    { q: "¿Tengo que registrarme o crear una cuenta?", a: "No. Solo necesitas el enlace o el código que te han facilitado." },
+    { q: "¿Cómo entro con el código?", a: "En la pantalla de inicio pulsa «Unirse a una sala» e introduce el código. Si te han pasado un enlace, con abrirlo entras directamente." },
+    { q: "¿Cuánto tiempo me llevará?", a: "Entre 10 y 20 minutos, según cuántas preguntas respondas." },
+    { q: "¿Qué significan las opciones de respuesta?", a: "Sí (el control existe y se aplica), No (no existe), Parcial (a medias) y No sé. Responde con sinceridad: «No sé» es una respuesta válida y útil." },
+    { q: "No entiendo una pregunta. ¿Dónde miro?", a: "Pulsa el icono de información (ℹ) que hay junto a cada pregunta: verás su propósito, el riesgo asociado, quién es el responsable y la norma que lo regula." },
+    { q: "¿Respondo solo las preguntas de mi puesto o todas?", a: "Si te han pedido una primera aproximación tú solo, activa «Responder todas las preguntas». Si no, responde las que correspondan a tu nivel." },
+    { q: "¿Puedo dejarlo a medias y continuar más tarde?", a: "Sí. Pulsa «Guardar borrador»; podrás retomarlo después en el mismo dispositivo y navegador (además se guarda solo mientras trabajas)." },
+    { q: "¿Puedo añadir comentarios?", a: "Sí, en las respuestas «Parcial» y «No sé». Importante: no escribas nombres ni datos personales." },
+    { q: "Cuando termine, ¿qué hago?", a: "Pulsa «Enviar al consultor». Tus respuestas le llegan directamente; tú no necesitas ver el informe." },
+    { q: "¿Me evalúan a mí? ¿Verán mis respuestas una por una?", a: "No se evalúa a las personas, sino al centro. Las respuestas se agregan por niveles para dar una visión de conjunto." },
+    { q: "¿Están protegidos mis datos?", a: "Sí. Se aplican los principios del RGPD y se minimizan los datos; no se piden datos personales." },
+  ] },
+  { title: "Para el consultor", items: [
+    { q: "¿Cómo creo el diagnóstico de un centro?", a: "Desde «Trabajar en un modelo de prevención» → «Nuevo modelo de prevención», o desde «Diagnóstico rápido» si quieres compartir un enlace." },
+    { q: "¿Cómo hago que respondan las personas del centro?", a: "Comparte el código de la sala o el enlace. Cada persona responde su parte a distancia, sin necesidad de cuenta." },
+    { q: "¿Puede una sola persona hacer una primera aproximación?", a: "Sí. Que active «Responder todas las preguntas»; el enlace del diagnóstico rápido ya viene con esa opción puesta." },
+    { q: "¿Dónde veo las respuestas y genero el informe?", a: "En «Modelos de prevención», abre la sala del centro: verás las entrevistas recibidas y podrás descargar el informe en Word." },
+    { q: "¿Qué es la matriz y el mapa de calor?", a: "Sitúan cada riesgo según su probabilidad y su impacto (P × I) y lo clasifican en bajo, medio, alto o crítico." },
+    { q: "¿Puedo ajustar la ponderación o la P/I?", a: "Sí. En el panel puedes personalizar el reparto de influencia por pregunta y ajustar la probabilidad e impacto de cada riesgo con criterio experto." },
+    { q: "¿Me avisan cuando alguien responde?", a: "Sí: recibes un correo cuando se envía una entrevista (si el envío de correo está configurado)." },
+  ] },
+  { title: "Dudas generales", items: [
+    { q: "¿El informe sustituye el asesoramiento jurídico?", a: "No. Es una herramienta de prevención y una base de trabajo rigurosa; no sustituye el asesoramiento profesional ni la supervisión de la Administración educativa." },
+    { q: "La página tarda en cargar la primera vez.", a: "Es normal: en el plan gratuito el servidor «duerme» tras un rato sin uso y puede tardar hasta un minuto en despertar en la primera visita." },
+    { q: "He olvidado mi contraseña.", a: "En «Iniciar sesión», pulsa «¿Olvidaste tu contraseña?» y sigue las instrucciones del correo." },
+    { q: "¿En qué normativa se basa?", a: "En la LOPIVI (LO 8/2021), la LOPJM (LO 1/1996) y la LOE (LO 2/2006), entre otras, con la metodología de compliance de la ISO 37301:2021 y el RD 393/2007 de autoprotección." },
+  ] },
+];
+function printHelp() {
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const body = HELP_FAQ.map((sec) => `<h2>${esc(sec.title)}</h2>` + sec.items.map((it) => `<div class="qa"><p class="q">${esc(it.q)}</p><p class="a">${esc(it.a)}</p></div>`).join("")).join("");
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Ayuda · Diligentia educativa</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;color:#16202E;max-width:760px;margin:24px auto;padding:0 16px;line-height:1.5}
+  h1{color:#1F3864;font-size:22px;margin:0 0 2px} .sub{color:#54627A;font-size:12.5px;margin:0 0 16px}
+  h2{color:#1F3864;font-size:15px;border-bottom:1px solid #C9D3DF;padding-bottom:4px;margin:22px 0 10px}
+  .q{font-weight:700;margin:10px 0 2px;font-size:13.5px} .a{margin:0 0 6px;font-size:13px;color:#26303e}</style></head>
+  <body><h1>Ayuda y preguntas frecuentes</h1><p class="sub">Diligentia educativa · una solución de Forentia 360</p>${body}
+  <p class="sub" style="margin-top:24px">Herramienta de prevención · no sustituye el asesoramiento jurídico profesional.</p></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Habilita las ventanas emergentes para imprimir o guardar la ayuda en PDF."); return; }
+  w.document.write(html); w.document.close(); w.focus();
+  setTimeout(() => { try { w.print(); } catch { } }, 350);
+}
+function HelpModal({ onClose }) {
+  const btn = (bg, color, brd) => ({ border: brd || "none", background: bg, color, borderRadius: 8, padding: "7px 12px", cursor: "pointer", fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 });
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(22,32,46,0.45)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 16px", overflowY: "auto" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, maxWidth: 800, width: "100%", boxShadow: "0 14px 44px rgba(0,0,0,0.22)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${C.line}`, background: C.bg, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.navy }}>Ayuda y preguntas frecuentes</div>
+            <div style={{ fontSize: 12, color: C.slate }}>Diligentia educativa · una solución de Forentia 360</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={printHelp} style={btn(C.action, "#fff")}><FileDown size={15} /> Imprimir / Guardar PDF</button>
+            <button onClick={onClose} style={btn(C.surface, C.navy, `1px solid ${C.line}`)}><X size={15} /> Cerrar</button>
+          </div>
+        </div>
+        <div style={{ padding: "16px 20px", maxHeight: "72vh", overflowY: "auto" }}>
+          {HELP_FAQ.map((sec) => (
+            <div key={sec.title} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.navy, borderBottom: `1px solid ${C.line}`, paddingBottom: 5, marginBottom: 10 }}>{sec.title}</div>
+              {sec.items.map((it, i) => (
+                <div key={i} style={{ marginBottom: 11 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink }}>{it.q}</div>
+                  <div style={{ fontSize: 13, color: "#26303E", lineHeight: 1.5 }}>{it.a}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+          <div style={{ fontSize: 11.5, color: C.slate, marginTop: 6, fontStyle: "italic" }}>Herramienta de prevención · no sustituye el asesoramiento jurídico profesional.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [view, setView] = useState("home");
   const [code, setCode] = useState("");
@@ -448,6 +529,7 @@ export default function App() {
   const [pwOpen, setPwOpen] = useState(false);
   const [resetToken, setResetToken] = useState(null);
   const [participantAll, setParticipantAll] = useState(false); // entrar a la entrevista con "responder todas" activado (enlace compartido)
+  const [helpOpen, setHelpOpen] = useState(false);
   const [me, setMe] = useState(null);
 
   // Perfil del usuario autenticado (para saber su rol y su nombre).
@@ -500,6 +582,7 @@ export default function App() {
             <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.35 }}>Una solución de <b style={{ color: C.slate }}>Forentia 360</b> a los requisitos de la LOPIVI (LO 8/2021), la LOPJM (LO 1/1996) y la LOE (LO 2/2006), entre otras, conforme a las directrices de la ISO 37301:2021</div>
           </div>
           {store.mode === "local" && !store.persistent && <span title="Sin almacenamiento persistente en este entorno" style={{ fontSize: 11, color: C.med, fontFamily: mono, display: "inline-flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> modo local</span>}
+          <button onClick={() => setHelpOpen(true)} title="Ayuda y preguntas frecuentes" style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "6px 11px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}><Info size={15} /> Ayuda</button>
           {(canModels || (store.mode === "api" && authed)) && (
             <HeaderMenu items={[
               ...(canModels ? [{ key: "models", label: "Modelos de prevención", icon: Grid3x3, onClick: () => setView("models") }] : []),
@@ -534,6 +617,7 @@ export default function App() {
 
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px 30px" }}><Disclaimer /></footer>
       {pwOpen && <PasswordModal onClose={() => setPwOpen(false)} />}
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }
@@ -1213,7 +1297,7 @@ function Participant({ code, center, onBack, defaultAll = false }) {
         <H sub={`Centro: ${center?.name || "—"} · código ${code}`}>Tu entrevista</H>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 8, background: hexA(C.action, 0.06), border: `1px solid ${hexA(C.action, 0.25)}`, color: C.ink, fontSize: 12.5, marginBottom: 14, lineHeight: 1.5 }}>
           <Info size={15} style={{ flexShrink: 0, marginTop: 1, color: C.action }} />
-          <span>Responde con tranquilidad. Puedes <b>guardar el borrador</b> y continuar más tarde en este mismo dispositivo, y cuando termines pulsar <b>«Enviar al consultor»</b>. En cada pregunta tienes un icono de ayuda (ℹ) con su propósito, el riesgo asociado y la norma. El informe lo elaborará el consultor; tú no necesitas verlo.</span>
+          <span>Responde con tranquilidad. Puedes <b>guardar el borrador</b> y continuar más tarde en este mismo dispositivo, y cuando termines pulsar <b>«Enviar al consultor»</b>. En cada pregunta tienes un icono de ayuda (ℹ) con su propósito, el riesgo asociado y la norma. Para dudas generales, pulsa «Ayuda» en la parte superior. El informe lo elaborará el consultor; tú no necesitas verlo.</span>
         </div>
         <InterviewForm allowAll defaultAll={defaultAll} draftKey={`forentia_draft_${code}`} onSubmit={submit} submitLabel="Enviar al consultor" submitIcon={Send} />
       </Card>
