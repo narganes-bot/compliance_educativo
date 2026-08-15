@@ -1657,7 +1657,7 @@ function Dashboard({ code, center: centerProp, onBack }) {
             <div style={{ fontSize: 14, fontWeight: 700 }}>Registrar una entrevista</div>
             <span style={{ fontSize: 12, color: C.slate }}>Entrevistas tú y anotas las respuestas · una persona por entrevista</span>
           </div>
-          <InterviewForm submitLabel="Guardar y siguiente persona" submitIcon={Check} onSubmit={saveInterview} />
+          <InterviewForm submitLabel="Guardar entrevista" submitIcon={Check} onSubmit={async (iv) => { await saveInterview(iv); setInterviewing(false); }} />
         </Card>
       )}
 
