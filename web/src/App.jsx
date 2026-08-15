@@ -582,16 +582,14 @@ export default function App() {
             <div style={{ fontSize: 12, color: C.slate, lineHeight: 1.35 }}>Una solución de <b style={{ color: C.slate }}>Forentia 360</b> a los requisitos de la LOPIVI (LO 8/2021), la LOPJM (LO 1/1996) y la LOE (LO 2/2006), entre otras, conforme a las directrices de la ISO 37301:2021</div>
           </div>
           {store.mode === "local" && !store.persistent && <span title="Sin almacenamiento persistente en este entorno" style={{ fontSize: 11, color: C.med, fontFamily: mono, display: "inline-flex", alignItems: "center", gap: 5 }}><AlertTriangle size={13} /> modo local</span>}
-          <button onClick={() => setHelpOpen(true)} title="Ayuda y preguntas frecuentes" style={{ border: `1px solid ${C.line}`, background: C.surface, borderRadius: 8, padding: "6px 11px", cursor: "pointer", color: C.navy, fontSize: 12.5, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}><Info size={15} /> Ayuda</button>
-          {(canModels || (store.mode === "api" && authed)) && (
-            <HeaderMenu items={[
-              ...(canModels ? [{ key: "models", label: "Modelos de prevención", icon: Grid3x3, onClick: () => setView("models") }] : []),
-              { key: "home", label: "Inicio", icon: HomeIcon, onClick: () => setView("home") },
-              ...(store.mode === "api" && authed && me && me.user && me.user.role === "owner" ? [{ key: "users", label: "Usuarios", icon: Users, onClick: () => setView("users") }] : []),
-              ...(store.mode === "api" && authed ? [{ key: "pw", label: "Cambiar contraseña", icon: Scale, onClick: () => setPwOpen(true) }] : []),
-              ...(store.mode === "api" && authed ? [{ key: "logout", label: "Cerrar sesión", icon: LogIn, danger: true, onClick: logout }] : []),
-            ]} />
-          )}
+          <HeaderMenu items={[
+            { key: "home", label: "Inicio", icon: HomeIcon, onClick: () => setView("home") },
+            ...(canModels ? [{ key: "models", label: "Modelos de prevención", icon: Grid3x3, onClick: () => setView("models") }] : []),
+            { key: "help", label: "Ayuda y preguntas frecuentes", icon: Info, onClick: () => setHelpOpen(true) },
+            ...(store.mode === "api" && authed && me && me.user && me.user.role === "owner" ? [{ key: "users", label: "Usuarios", icon: Users, onClick: () => setView("users") }] : []),
+            ...(store.mode === "api" && authed ? [{ key: "pw", label: "Cambiar contraseña", icon: Scale, onClick: () => setPwOpen(true) }] : []),
+            ...(store.mode === "api" && authed ? [{ key: "logout", label: "Cerrar sesión", icon: LogIn, danger: true, onClick: logout }] : []),
+          ]} />
         </div>
       </header>
 
@@ -1297,7 +1295,7 @@ function Participant({ code, center, onBack, defaultAll = false }) {
         <H sub={`Centro: ${center?.name || "—"} · código ${code}`}>Tu entrevista</H>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 8, background: hexA(C.action, 0.06), border: `1px solid ${hexA(C.action, 0.25)}`, color: C.ink, fontSize: 12.5, marginBottom: 14, lineHeight: 1.5 }}>
           <Info size={15} style={{ flexShrink: 0, marginTop: 1, color: C.action }} />
-          <span>Responde con tranquilidad. Puedes <b>guardar el borrador</b> y continuar más tarde en este mismo dispositivo, y cuando termines pulsar <b>«Enviar al consultor»</b>. En cada pregunta tienes un icono de ayuda (ℹ) con su propósito, el riesgo asociado y la norma. Para dudas generales, pulsa «Ayuda» en la parte superior. El informe lo elaborará el consultor; tú no necesitas verlo.</span>
+          <span>Responde con tranquilidad. Puedes <b>guardar el borrador</b> y continuar más tarde en este mismo dispositivo, y cuando termines pulsar <b>«Enviar al consultor»</b>. En cada pregunta tienes un icono de ayuda (ℹ) con su propósito, el riesgo asociado y la norma. Para dudas generales, abre el «Menú» (arriba a la derecha) y pulsa «Ayuda». El informe lo elaborará el consultor; tú no necesitas verlo.</span>
         </div>
         <InterviewForm allowAll defaultAll={defaultAll} draftKey={`forentia_draft_${code}`} onSubmit={submit} submitLabel="Enviar al consultor" submitIcon={Send} />
       </Card>
